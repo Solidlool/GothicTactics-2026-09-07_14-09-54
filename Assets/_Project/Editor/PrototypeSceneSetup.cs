@@ -1,4 +1,5 @@
 using GothicTactics.CameraSystem;
+using GothicTactics.Combat;
 using GothicTactics.Grid;
 using GothicTactics.Units;
 using UnityEditor;
@@ -49,18 +50,17 @@ namespace GothicTactics.Editor
             }
             gridSerialized.ApplyModifiedPropertiesWithoutUndo();
 
-            var unitObject = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            unitObject.name = "Prototype Hunter";
-            unitObject.transform.localScale = new Vector3(0.55f, 0.7f, 0.55f);
-            var unit = unitObject.AddComponent<HexUnit>();
-            var unitSerialized = new SerializedObject(unit);
-            unitSerialized.FindProperty("grid").objectReferenceValue = grid;
-            unitSerialized.FindProperty("startingQ").intValue = 1;
-            unitSerialized.FindProperty("startingR").intValue = 1;
-            unitSerialized.ApplyModifiedPropertiesWithoutUndo();
+            CreateUnit("Hunter", grid, new Vector2Int(1, 1), UnitTeam.Player, 20,
+                "Assets/_Project/PrototypeHunterMaterial.mat", new Color(0.62f, 0.16f, 0.12f));
+            CreateUnit("Penitent", grid, new Vector2Int(1, 3), UnitTeam.Player, 15,
+                "Assets/_Project/PrototypePenitentMaterial.mat", new Color(0.72f, 0.58f, 0.20f));
+            CreateUnit("Ghoul", grid, new Vector2Int(6, 6), UnitTeam.Enemy, 10,
+                "Assets/_Project/PrototypeEnemyMaterial.mat", new Color(0.20f, 0.42f, 0.20f));
 
-            var unitRenderer = unitObject.GetComponent<MeshRenderer>();
-            unitRenderer.sharedMaterial = GetOrCreateUnitMaterial();
+            var turnObject = new GameObject("Turn System", typeof(TurnManager), typeof(PrototypeTurnHUD));
+            var turnSerialized = new SerializedObject(turnObject.GetComponent<TurnManager>());
+            turnSerialized.FindProperty("grid").objectReferenceValue = grid;
+            turnSerialized.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             Selection.activeGameObject = gridObject;
@@ -84,20 +84,43 @@ namespace GothicTactics.Editor
             return material;
         }
 
-        private static Material GetOrCreateUnitMaterial()
+        private static void CreateUnit(
+            string unitName,
+            HexGrid grid,
+            Vector2Int startingCoordinates,
+            UnitTeam team,
+            int initiative,
+            string materialPath,
+            Color colour)
         {
-            const string unitMaterialPath = "Assets/_Project/PrototypeUnitMaterial.mat";
-            var material = AssetDatabase.LoadAssetAtPath<Material>(unitMaterialPath);
+            var unitObject = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            unitObject.name = unitName;
+            unitObject.transform.localScale = new Vector3(0.55f, 0.7f, 0.55f);
+            var unit = unitObject.AddComponent<HexUnit>();
+            var unitSerialized = new SerializedObject(unit);
+            unitSerialized.FindProperty("grid").objectReferenceValue = grid;
+            unitSerialized.FindProperty("startingQ").intValue = startingCoordinates.x;
+            unitSerialized.FindProperty("startingR").intValue = startingCoordinates.y;
+            unitSerialized.FindProperty("team").enumValueIndex = (int)team;
+            unitSerialized.FindProperty("initiative").intValue = initiative;
+            unitSerialized.ApplyModifiedPropertiesWithoutUndo();
+
+            unitObject.GetComponent<MeshRenderer>().sharedMaterial = GetOrCreateUnitMaterial(materialPath, unitName, colour);
+        }
+
+        private static Material GetOrCreateUnitMaterial(string materialPath, string unitName, Color colour)
+        {
+            var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
             if (material != null) return material;
 
             var shader = Shader.Find("Universal Render Pipeline/Lit");
             material = new Material(shader)
             {
-                name = "Prototype Unit Material",
-                color = new Color(0.62f, 0.16f, 0.12f)
+                name = $"Prototype {unitName} Material",
+                color = colour
             };
             material.SetFloat("_Smoothness", 0.1f);
-            AssetDatabase.CreateAsset(material, unitMaterialPath);
+            AssetDatabase.CreateAsset(material, materialPath);
             return material;
         }
     }

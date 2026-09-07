@@ -12,9 +12,11 @@
 
 - Hover a tile to highlight it.
 - Left-click a tile to select it.
-- Left-click the red prototype unit to select it and show reachable tiles.
+- The active player unit is selected automatically and shows its reachable tiles.
 - Left-click a green reachable tile to move along the calculated path; movement costs one AP per hex.
 - Dark tiles with cubes are blocked and movement routes around them.
+- Use the prototype HUD's **End Turn** button to advance from the Hunter to the Penitent and then the Ghoul.
+- The Ghoul takes a short automatic turn and moves one hex towards the nearest hero.
 - Use WASD or the arrow keys to pan the camera.
 - Use the mouse wheel to zoom.
 

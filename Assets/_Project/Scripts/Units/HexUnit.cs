@@ -6,6 +6,12 @@ using UnityEngine;
 
 namespace GothicTactics.Units
 {
+    public enum UnitTeam
+    {
+        Player,
+        Enemy
+    }
+
     public sealed class HexUnit : MonoBehaviour
     {
         [SerializeField] private HexGrid grid;
@@ -13,16 +19,20 @@ namespace GothicTactics.Units
         [SerializeField] private int startingR;
         [SerializeField, Min(1)] private int maximumActionPoints = 5;
         [SerializeField, Min(0.1f)] private float movementSpeed = 4f;
+        [SerializeField] private UnitTeam team;
+        [SerializeField] private int initiative = 10;
 
         public HexTile CurrentTile { get; private set; }
         public int CurrentActionPoints { get; private set; }
         public int MaximumActionPoints => maximumActionPoints;
         public bool IsMoving { get; private set; }
+        public UnitTeam Team => team;
+        public int Initiative => initiative;
 
         private void Start()
         {
             grid ??= FindFirstObjectByType<HexGrid>();
-            CurrentActionPoints = maximumActionPoints;
+            CurrentActionPoints = 0;
 
             if (grid == null || !grid.PlaceUnit(this, new HexCoordinates(startingQ, startingR)))
             {

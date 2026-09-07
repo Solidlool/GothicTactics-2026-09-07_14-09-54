@@ -22,6 +22,7 @@ namespace GothicTactics.Grid
         private HexTile hoveredTile;
         private HexTile selectedTile;
         private HexUnit selectedUnit;
+        private HexUnit activeUnit;
         private readonly HashSet<HexTile> reachableTiles = new();
         private readonly Dictionary<HexTile, int> movementCosts = new();
         private readonly Dictionary<HexTile, HexTile> movementParents = new();
@@ -65,6 +66,33 @@ namespace GothicTactics.Grid
             tile.SetOccupant(unit);
             unit.SetCurrentTile(tile);
             unit.transform.position = tile.transform.position + Vector3.up;
+            return true;
+        }
+
+        public void SetActiveUnit(HexUnit unit)
+        {
+            activeUnit = unit;
+            selectedUnit = null;
+            selectedTile?.SetSelected(false);
+            selectedTile = null;
+            ClearReachableTiles();
+
+            if (activeUnit != null && activeUnit.Team == UnitTeam.Player)
+            {
+                SelectUnit(activeUnit);
+            }
+        }
+
+        public bool TryMoveUnitOneStep(HexUnit unit, HexCoordinates destinationCoordinates, System.Action onComplete)
+        {
+            if (unit == null || unit.IsMoving || unit.CurrentTile == null) return false;
+            if (unit.CurrentTile.Coordinates.DistanceTo(destinationCoordinates) != 1) return false;
+            if (!TryGetTile(destinationCoordinates, out var destination) || !destination.IsWalkable || destination.IsOccupied) return false;
+            if (!unit.TrySpendActionPoints(1)) return false;
+
+            unit.CurrentTile.SetOccupant(null);
+            destination.SetOccupant(unit);
+            unit.MoveAlongPath(new[] { destination }, onComplete);
             return true;
         }
 
@@ -137,7 +165,10 @@ namespace GothicTactics.Grid
             var clickedUnit = hit.collider.GetComponentInParent<HexUnit>();
             if (clickedUnit != null)
             {
-                SelectUnit(clickedUnit);
+                if (clickedUnit == activeUnit && clickedUnit.Team == UnitTeam.Player)
+                {
+                    SelectUnit(clickedUnit);
+                }
                 return;
             }
 
@@ -170,10 +201,7 @@ namespace GothicTactics.Grid
 
         private void RefreshReachableTiles()
         {
-            foreach (var tile in reachableTiles) tile.SetReachable(false);
-            reachableTiles.Clear();
-            movementCosts.Clear();
-            movementParents.Clear();
+            ClearReachableTiles();
 
             if (selectedUnit?.CurrentTile == null) return;
 
@@ -201,6 +229,14 @@ namespace GothicTactics.Grid
                     neighbour.SetReachable(true);
                 }
             }
+        }
+
+        private void ClearReachableTiles()
+        {
+            foreach (var tile in reachableTiles) tile.SetReachable(false);
+            reachableTiles.Clear();
+            movementCosts.Clear();
+            movementParents.Clear();
         }
 
         private List<HexTile> BuildPathTo(HexTile destination)
