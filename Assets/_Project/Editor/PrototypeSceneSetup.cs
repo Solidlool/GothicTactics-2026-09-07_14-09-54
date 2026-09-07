@@ -36,6 +36,17 @@ namespace GothicTactics.Editor
             var gridSerialized = new SerializedObject(grid);
             gridSerialized.FindProperty("interactionCamera").objectReferenceValue = cameraObject.GetComponent<Camera>();
             gridSerialized.FindProperty("tileMaterial").objectReferenceValue = GetOrCreateMaterial();
+            var blockedCoordinates = gridSerialized.FindProperty("blockedCoordinates");
+            var blockers = new[]
+            {
+                new Vector2Int(3, 2), new Vector2Int(3, 3), new Vector2Int(3, 4),
+                new Vector2Int(4, 4), new Vector2Int(5, 4)
+            };
+            blockedCoordinates.arraySize = blockers.Length;
+            for (var i = 0; i < blockers.Length; i++)
+            {
+                blockedCoordinates.GetArrayElementAtIndex(i).vector2IntValue = blockers[i];
+            }
             gridSerialized.ApplyModifiedPropertiesWithoutUndo();
 
             var unitObject = GameObject.CreatePrimitive(PrimitiveType.Capsule);

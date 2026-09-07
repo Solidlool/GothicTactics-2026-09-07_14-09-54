@@ -12,6 +12,7 @@ namespace GothicTactics.Grid
         [SerializeField, Min(1)] private int height = 10;
         [SerializeField, Min(0.25f)] private float outerRadius = 1f;
         [SerializeField, Min(0f)] private float gap = 0.06f;
+        [SerializeField] private Vector2Int[] blockedCoordinates;
 
         [Header("References")]
         [SerializeField] private Camera interactionCamera;
@@ -23,6 +24,7 @@ namespace GothicTactics.Grid
         private HexUnit selectedUnit;
         private readonly HashSet<HexTile> reachableTiles = new();
         private readonly Dictionary<HexTile, int> movementCosts = new();
+        private readonly Dictionary<HexTile, HexTile> movementParents = new();
         private Mesh sharedHexMesh;
 
         public IReadOnlyDictionary<HexCoordinates, HexTile> Tiles => tiles;
@@ -57,7 +59,7 @@ namespace GothicTactics.Grid
 
         public bool PlaceUnit(HexUnit unit, HexCoordinates coordinates)
         {
-            if (!TryGetTile(coordinates, out var tile) || tile.IsOccupied) return false;
+            if (!TryGetTile(coordinates, out var tile) || !tile.IsWalkable || tile.IsOccupied) return false;
 
             unit.CurrentTile?.SetOccupant(null);
             tile.SetOccupant(unit);
@@ -81,7 +83,31 @@ namespace GothicTactics.Grid
 
             var tile = tileObject.AddComponent<HexTile>();
             tile.Initialise(coordinates);
+            if (IsConfiguredAsBlocked(coordinates))
+            {
+                tile.SetWalkable(false);
+                CreateObstacleMarker(tileObject.transform);
+            }
             tiles.Add(coordinates, tile);
+        }
+
+        private bool IsConfiguredAsBlocked(HexCoordinates coordinates)
+        {
+            if (blockedCoordinates == null) return false;
+            foreach (var blocked in blockedCoordinates)
+            {
+                if (blocked.x == coordinates.Q && blocked.y == coordinates.R) return true;
+            }
+            return false;
+        }
+
+        private static void CreateObstacleMarker(Transform tileTransform)
+        {
+            var marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            marker.name = "Obstacle";
+            marker.transform.SetParent(tileTransform, false);
+            marker.transform.localPosition = new Vector3(0f, 0.45f, 0f);
+            marker.transform.localScale = new Vector3(0.85f, 0.9f, 0.85f);
         }
 
         private Vector3 AxialToWorld(HexCoordinates coordinates)
@@ -117,12 +143,11 @@ namespace GothicTactics.Grid
 
             if (hoveredTile == null) return;
 
-            if (selectedUnit != null && movementCosts.TryGetValue(hoveredTile, out var movementCost))
+            if (selectedUnit != null && !selectedUnit.IsMoving && movementCosts.TryGetValue(hoveredTile, out var movementCost))
             {
                 if (selectedUnit.TrySpendActionPoints(movementCost))
                 {
-                    PlaceUnit(selectedUnit, hoveredTile.Coordinates);
-                    SelectUnit(selectedUnit);
+                    MoveSelectedUnit(BuildPathTo(hoveredTile));
                 }
                 return;
             }
@@ -148,6 +173,7 @@ namespace GothicTactics.Grid
             foreach (var tile in reachableTiles) tile.SetReachable(false);
             reachableTiles.Clear();
             movementCosts.Clear();
+            movementParents.Clear();
 
             if (selectedUnit?.CurrentTile == null) return;
 
@@ -162,7 +188,7 @@ namespace GothicTactics.Grid
                 for (var direction = 0; direction < 6; direction++)
                 {
                     var neighbourCoordinates = current.Coordinates.Neighbour(direction);
-                    if (!TryGetTile(neighbourCoordinates, out var neighbour) || neighbour.IsOccupied) continue;
+                    if (!TryGetTile(neighbourCoordinates, out var neighbour) || !neighbour.IsWalkable || neighbour.IsOccupied) continue;
 
                     var nextCost = cost[current] + 1;
                     if (nextCost > selectedUnit.CurrentActionPoints || cost.ContainsKey(neighbour)) continue;
@@ -171,9 +197,39 @@ namespace GothicTactics.Grid
                     frontier.Enqueue(neighbour);
                     reachableTiles.Add(neighbour);
                     movementCosts[neighbour] = nextCost;
+                    movementParents[neighbour] = current;
                     neighbour.SetReachable(true);
                 }
             }
+        }
+
+        private List<HexTile> BuildPathTo(HexTile destination)
+        {
+            var path = new List<HexTile> { destination };
+            var current = destination;
+            while (movementParents.TryGetValue(current, out var parent) && parent != selectedUnit.CurrentTile)
+            {
+                path.Add(parent);
+                current = parent;
+            }
+            path.Reverse();
+            return path;
+        }
+
+        private void MoveSelectedUnit(IReadOnlyList<HexTile> path)
+        {
+            if (path.Count == 0) return;
+
+            var destination = path[path.Count - 1];
+            selectedUnit.CurrentTile.SetOccupant(null);
+            destination.SetOccupant(selectedUnit);
+
+            foreach (var tile in reachableTiles) tile.SetReachable(false);
+            reachableTiles.Clear();
+            movementCosts.Clear();
+            movementParents.Clear();
+
+            selectedUnit.MoveAlongPath(path, () => SelectUnit(selectedUnit));
         }
 
         private void ClearGeneratedTiles()

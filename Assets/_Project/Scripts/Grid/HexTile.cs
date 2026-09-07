@@ -12,6 +12,7 @@ namespace GothicTactics.Grid
         [SerializeField] private Color hoverColour = new(0.32f, 0.36f, 0.40f);
         [SerializeField] private Color selectedColour = new(0.55f, 0.18f, 0.12f);
         [SerializeField] private Color reachableColour = new(0.18f, 0.42f, 0.34f);
+        [SerializeField] private Color blockedColour = new(0.07f, 0.07f, 0.08f);
 
         private MeshRenderer meshRenderer;
         private MaterialPropertyBlock properties;
@@ -22,6 +23,7 @@ namespace GothicTactics.Grid
         public HexCoordinates Coordinates { get; private set; }
         public HexUnit Occupant { get; private set; }
         public bool IsOccupied => Occupant != null;
+        public bool IsWalkable { get; private set; } = true;
 
         public void Initialise(HexCoordinates coordinates)
         {
@@ -58,11 +60,18 @@ namespace GothicTactics.Grid
             Occupant = occupant;
         }
 
+        public void SetWalkable(bool value)
+        {
+            IsWalkable = value;
+            RefreshColour();
+        }
+
         private void RefreshColour()
         {
             if (meshRenderer == null) return;
             properties ??= new MaterialPropertyBlock();
-            var colour = isSelected ? selectedColour :
+            var colour = !IsWalkable ? blockedColour :
+                isSelected ? selectedColour :
                 isHovered ? hoverColour :
                 isReachable ? reachableColour : normalColour;
             properties.SetColor(BaseColor, colour);
