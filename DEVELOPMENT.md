@@ -8,8 +8,16 @@
 
 Three hunters face four revenants in a ruined sanctuary. Kill every enemy while keeping at least one hunter alive. This is a standalone encounter with procedural placeholder characters and scenery.
 
+### Retro dungeon art pass
+
+The skirmish now uses original code-drawn pixel sprites, a fixed 2:1 isometric camera, textured stone floors and tombs, warm flickering torchlight, and a charcoal/brass HUD inspired by 1990s gothic dungeon crawlers. No external asset packs are needed. Characters have single-frame pixel sprites with the existing movement/lunge motions; directional walk and attack sprite animations are a future art pass.
+
+The battlefield renders to a small point-filtered texture (up to 240 pixels high) with integer enlargement. The HUD stays at display resolution for readable text. Picking and unit labels map through the same viewport; resizing the Game view recreates the render target. WASD pans relative to the screen axes.
+
+After pulling this update, stop Play Mode and run **Gothic Tactics > Play Complete Skirmish** again to recreate the scene with the new lighting. Check unit selection, path highlighting, camera zoom, Game-view resizing and restart locally. Unity rendering cannot be verified in the authoring environment.
+
 - Click a hunter or its squad card to select it; Tab cycles living hunters.
-- Click a teal hex to move along the previewed path. Each hex costs 1 AP.
+- Click a sage-green hex to move along the gold previewed path. Each hex costs 1 AP.
 - Click an enemy on a red hex to attack for 2 AP. Damage is deterministic. Ruins block movement and ranged sight; units block movement.
 - **Warden:** 16 HP, 4 damage, melee. **Arbalist:** 10 HP, 3 damage, range 4. **Hexblade:** 12 HP, 3 damage, range 2.
 - **Guard** spends all remaining AP (at least 1) to reduce incoming damage by 2, minimum 1, until that hunter's next turn.

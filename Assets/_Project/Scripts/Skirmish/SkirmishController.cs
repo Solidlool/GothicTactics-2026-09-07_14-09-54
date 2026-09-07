@@ -11,12 +11,18 @@ namespace GothicTactics.Skirmish
         private SkirmishBattle battle;
         private SkirmishBattle.Unit selected;
         private Camera view;
+        private Camera presentation;
         private Transform world;
         private readonly Dictionary<int, Renderer> tiles = new Dictionary<int, Renderer>();
         private readonly Dictionary<SkirmishBattle.Unit, Transform> pieces = new Dictionary<SkirmishBattle.Unit, Transform>();
         private readonly List<Material> materials = new List<Material>();
         private readonly Dictionary<int, int> costs = new Dictionary<int, int>();
-        private readonly Color stone = new Color(.18f,.23f,.25f), teal = new Color(.20f,.72f,.66f), red = new Color(.8f,.26f,.24f);
+        private readonly Color stone = new Color(.62f,.58f,.50f), teal = new Color(.53f,.57f,.38f), red = new Color(.65f,.22f,.16f);
+        private AshenPixelArt art;
+        private RenderTexture pixelScene;
+        private Rect sceneRect; // Screen pixels, bottom-left origin.
+        private readonly List<Light> torches = new List<Light>();
+        private readonly List<SpriteRenderer> actors = new List<SpriteRenderer>();
         private Mesh hex;
         private int hover = -1;
         private bool busy;
@@ -32,14 +38,61 @@ namespace GothicTactics.Skirmish
                 var go = new GameObject("Skirmish Camera", typeof(Camera), typeof(AudioListener));
                 go.tag = "MainCamera"; view = go.GetComponent<Camera>();
             }
-            view.orthographic = true; view.orthographicSize = 9.5f;
-            view.clearFlags = CameraClearFlags.SolidColor; view.backgroundColor = new Color(.035f,.055f,.065f);
-            view.transform.rotation = Quaternion.Euler(57,0,0);
+            art = new AshenPixelArt();
+            // Keep a display camera active while the world camera renders offscreen.
+            presentation = new GameObject("Pixel View Presentation",typeof(Camera)).GetComponent<Camera>();
+            presentation.transform.SetParent(transform,false);
+            presentation.cullingMask=0; presentation.depth=view.depth-1;
+            presentation.clearFlags=CameraClearFlags.SolidColor; presentation.backgroundColor=Color.black;
+            presentation.allowHDR=false; presentation.allowMSAA=false;
+            view.orthographic = true; view.orthographicSize = 8.5f;
+            view.allowHDR = false; view.allowMSAA = false;
+            view.clearFlags = CameraClearFlags.SolidColor; view.backgroundColor = new Color(.018f,.015f,.018f);
+            view.transform.rotation = Quaternion.Euler(30,-45,0);
             PositionCamera();
+            UpdatePixelTarget();
             hex = BuildHex();
             Restart();
         }
         private void PositionCamera() => view.transform.position = focus - view.transform.forward * 30;
+        private void UpdatePixelTarget()
+        {
+            float scale = UiScale;
+            sceneRect = new Rect(270*scale,110*scale,Mathf.Max(1,Screen.width-270*scale),Mathf.Max(1,Screen.height-190*scale));
+            // Integer pixel enlargement; point sampling prevents a blurry upscale.
+            int zoom = Mathf.Max(1,Mathf.CeilToInt(sceneRect.height/240f));
+            int width = Mathf.Max(1,Mathf.FloorToInt(sceneRect.width/zoom));
+            int height = Mathf.Max(1,Mathf.FloorToInt(sceneRect.height/zoom));
+            sceneRect = new Rect(sceneRect.x+(sceneRect.width-width*zoom)*.5f,sceneRect.y+(sceneRect.height-height*zoom)*.5f,width*zoom,height*zoom);
+            if (pixelScene != null && pixelScene.width == width && pixelScene.height == height) return;
+            view.targetTexture = null;
+            if (pixelScene != null) { pixelScene.Release(); Destroy(pixelScene); }
+            pixelScene = new RenderTexture(width,height,24,RenderTextureFormat.ARGB32)
+            { name = "Ashen Bell pixel viewport", filterMode = FilterMode.Point, antiAliasing = 1, useMipMap = false };
+            pixelScene.Create(); view.targetTexture = pixelScene;
+            view.rect = new Rect(0,0,1,1); view.aspect = sceneRect.width/sceneRect.height;
+        }
+        private Ray PointerRay(Vector2 pointer)
+        {
+            return view.ViewportPointToRay(new Vector3((pointer.x-sceneRect.x)/sceneRect.width,(pointer.y-sceneRect.y)/sceneRect.height,0));
+        }
+        private Vector3 WorldToScreen(Vector3 position)
+        {
+            Vector3 p = view.WorldToViewportPoint(position);
+            return new Vector3(sceneRect.x+p.x*sceneRect.width,sceneRect.y+p.y*sceneRect.height,p.z);
+        }
+        private void AddTorch(Vector3 position,Material iron)
+        {
+            Primitive("Iron torch stand",PrimitiveType.Cube,position+Vector3.up*.58f,new Vector3(.09f,1.16f,.09f),iron,world);
+            Primitive("Brazier bowl",PrimitiveType.Cube,position+Vector3.up*1.14f,new Vector3(.3f,.16f,.3f),iron,world);
+            var flame = new GameObject("Pixel flame",typeof(SpriteRenderer)).GetComponent<SpriteRenderer>();
+            flame.transform.SetParent(world,false); flame.transform.position=position+Vector3.up*1.2f;
+            flame.transform.rotation=view.transform.rotation; flame.sprite=art.Flame(); actors.Add(flame);
+            var glow = new GameObject("Torchlight",typeof(Light)).GetComponent<Light>();
+            glow.transform.SetParent(world,false); glow.transform.position=position+Vector3.up*1.5f;
+            glow.type=LightType.Point; glow.color=new Color(1f,.47f,.17f); glow.range=5f; glow.intensity=2.1f;
+            glow.shadows=LightShadows.None; torches.Add(glow);
+        }
         private Vector3 Position(int id)
         {
             var c = battle.Cells[id]; return new Vector3(Mathf.Sqrt(3)*(c.Q+c.R*.5f),0,1.5f*c.R);
@@ -48,6 +101,7 @@ namespace GothicTactics.Skirmish
         {
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var mat = new Material(shader) { color = color };
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness",0);
             materials.Add(mat); return mat;
         }
         private Transform Primitive(string name, PrimitiveType type, Vector3 position, Vector3 scale, Material mat, Transform parent)
@@ -62,11 +116,13 @@ namespace GothicTactics.Skirmish
             StopAllCoroutines(); busy = false;
             if (world != null) { world.gameObject.SetActive(false); Destroy(world.gameObject); }
             foreach (var mat in materials) Destroy(mat);
-            materials.Clear(); pieces.Clear(); tiles.Clear(); hover = -1;
+            materials.Clear(); pieces.Clear(); tiles.Clear(); torches.Clear(); actors.Clear(); hover = -1;
             world = new GameObject("Generated Skirmish").transform; world.SetParent(transform);
             battle = new SkirmishBattle();
-            var tileMat = MakeMaterial(stone); var ruinMat = MakeMaterial(new Color(.26f,.29f,.3f));
-            var gold = MakeMaterial(new Color(.73f,.55f,.27f));
+            var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Stone;
+            var ruinMat = MakeMaterial(new Color(.52f,.48f,.42f)); ruinMat.mainTexture = art.Stone;
+            var gold = MakeMaterial(new Color(.38f,.28f,.15f));
+            var shadow = MakeMaterial(new Color(.06f,.045f,.04f));
             foreach (var c in battle.Cells)
             {
                 var go = new GameObject("Hex " + c.Q + ", " + c.R, typeof(MeshFilter), typeof(MeshRenderer));
@@ -75,29 +131,24 @@ namespace GothicTactics.Skirmish
                 var renderer = go.GetComponent<Renderer>(); renderer.sharedMaterial = tileMat; tiles[c.Id] = renderer;
                 if (c.Blocked)
                 {
-                    Primitive("Ruin plinth", PrimitiveType.Cube, Position(c.Id)+Vector3.up*.25f, new Vector3(1.05f,.5f,.9f), ruinMat, world);
-                    Primitive("Broken pillar", PrimitiveType.Cube, Position(c.Id)+Vector3.up*.95f, new Vector3(.6f,1.6f,.55f), ruinMat, world);
-                    Primitive("Iron band", PrimitiveType.Cube, Position(c.Id)+Vector3.up*1.35f, new Vector3(.68f,.12f,.63f), gold, world);
+                    Vector3 at = Position(c.Id);
+                    Primitive("Tomb foundation", PrimitiveType.Cube, at+Vector3.up*.14f, new Vector3(1.22f,.28f,1.10f), ruinMat, world);
+                    Primitive("Weathered tomb", PrimitiveType.Cube, at+Vector3.up*.48f, new Vector3(.94f,.54f,.88f), ruinMat, world);
+                    Primitive("Carved headstone", PrimitiveType.Cube, at+new Vector3(0,.93f,.21f), new Vector3(.74f,1.22f,.28f), ruinMat, world);
+                    Primitive("Stone cap", PrimitiveType.Cube, at+new Vector3(0,1.56f,.21f), new Vector3(.85f,.12f,.38f), ruinMat, world);
+                    Primitive("Engraved cross", PrimitiveType.Cube, at+new Vector3(0,1.13f,.058f), new Vector3(.09f,.48f,.015f), shadow, world);
+                    Primitive("Cross arm", PrimitiveType.Cube, at+new Vector3(0,1.23f,.05f), new Vector3(.34f,.07f,.016f), shadow, world);
+                    if (c.Id % 2 == 0) AddTorch(at+new Vector3(-.53f,0,-.42f),gold);
                 }
             }
             foreach (var u in battle.Units)
             {
                 var root = new GameObject(u.Name).transform; root.SetParent(world); root.position = Position(u.CellId);
-                var mat = MakeMaterial(u.Enemy ? red : teal);
-                var armour = MakeMaterial(u.Enemy ? new Color(.26f,.12f,.16f) : new Color(.12f,.28f,.3f));
-                Primitive("Base", PrimitiveType.Cylinder, root.position+Vector3.up*.1f, new Vector3(.85f,.10f,.85f), mat,root);
-                Primitive("Body", PrimitiveType.Capsule, root.position+Vector3.up*.75f, new Vector3(.48f,.57f,.48f), armour,root);
-                Primitive("Helm", PrimitiveType.Sphere, root.position+Vector3.up*1.42f, Vector3.one*.4f, mat,root);
-                if (u.Range == 1)
-                {
-                    Primitive("Blade", PrimitiveType.Cube, root.position+new Vector3(.4f,.95f,0), new Vector3(.1f,1.1f,.1f),gold,root);
-                    Primitive("Shield", PrimitiveType.Cube, root.position+new Vector3(-.34f,.8f,-.08f),new Vector3(.18f,.65f,.5f),mat,root);
-                }
-                else
-                {
-                    Primitive("Weapon", PrimitiveType.Cube,root.position+new Vector3(.32f,.85f,0),new Vector3(.12f,1.35f,.12f),gold,root);
-                    Primitive("Focus",PrimitiveType.Sphere,root.position+new Vector3(.32f,1.6f,0),Vector3.one*.25f,mat,root);
-                }
+                Primitive("Foot shadow", PrimitiveType.Cylinder,root.position+Vector3.up*.025f,new Vector3(.78f,.012f,.60f),shadow,root);
+                var image = new GameObject(u.Role+" sprite",typeof(SpriteRenderer)).GetComponent<SpriteRenderer>();
+                image.transform.SetParent(root,false); image.transform.localPosition=Vector3.up*.08f;
+                image.transform.rotation=view.transform.rotation; image.sprite=art.Character(u.Role);
+                actors.Add(image);
                 pieces[u] = root;
             }
             selected = battle.Units[0]; hint = "Destroy all four revenants. Keep at least one hunter alive.";
@@ -121,33 +172,36 @@ namespace GothicTactics.Skirmish
             var block = new MaterialPropertyBlock();
             foreach (var c in battle.Cells)
             {
-                Color color = c.Blocked ? stone*.65f : stone;
-                if (costs.ContainsKey(c.Id)) color = new Color(.15f,.38f,.36f);
-                if (path.Contains(c.Id)) color = teal*.8f;
+                Color color = (c.Blocked ? stone*.75f : stone) * (1f + ((c.Id*17)%9-4)*.018f);
+                if (costs.ContainsKey(c.Id)) color = new Color(.57f,.62f,.43f);
+                if (path.Contains(c.Id)) color = new Color(.77f,.74f,.47f);
                 var occupant = battle.At(c.Id);
-                if (selected != null && battle.CanAttack(selected,occupant)) color = new Color(.55f,.19f,.17f);
-                if (selected != null && selected.Alive && selected.CellId == c.Id) color = new Color(.7f,.53f,.25f);
+                if (selected != null && battle.CanAttack(selected,occupant)) color = new Color(.72f,.30f,.22f);
+                if (selected != null && selected.Alive && selected.CellId == c.Id) color = new Color(.95f,.73f,.34f);
                 if (c.Id == hover) color = Color.Lerp(color,Color.white,.25f);
                 block.SetColor("_BaseColor",color); block.SetColor("_Color",color); tiles[c.Id].SetPropertyBlock(block);
             }
         }
         private bool OverUI(Vector2 screen)
         {
-            float scale = UiScale, x = screen.x/scale, y = (Screen.height-screen.y)/scale;
-            return x < 270 || y < 80 || y > Screen.height/scale-110 || battle.Finished;
+            return !sceneRect.Contains(screen) || battle.Finished;
         }
         private void Update()
         {
             if (battle == null) return;
-            float scale = UiScale;
-            view.rect = new Rect(270*scale/Screen.width,110*scale/Screen.height,
-                1-270*scale/Screen.width,1-190*scale/Screen.height);
+            UpdatePixelTarget();
+            for (int i=0;i<torches.Count;i++)
+                torches[i].intensity = 2.1f + Mathf.Sin(Time.time*8.1f+i*2.3f)*.22f + Mathf.Sin(Time.time*17.3f+i)*.09f;
+            foreach (var actor in actors)
+                actor.sortingOrder = -(int)(Vector3.Dot(actor.transform.position,view.transform.forward)*100);
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
                 float x = (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed ? 1 : 0)-(keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed ? 1 : 0);
                 float z = (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed ? 1 : 0)-(keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed ? 1 : 0);
-                focus += new Vector3(x,0,z)*Time.deltaTime*10; focus.x = Mathf.Clamp(focus.x,0,26); focus.z = Mathf.Clamp(focus.z,-4,18); PositionCamera();
+                Vector3 right = view.transform.right; right.y=0;
+                Vector3 up = view.transform.up; up.y=0;
+                focus += (right.normalized*x+up.normalized*z)*Time.deltaTime*10; focus.x = Mathf.Clamp(focus.x,0,26); focus.z = Mathf.Clamp(focus.z,-4,18); PositionCamera();
                 if (keyboard.spaceKey.wasPressedThisFrame) BeginEnemyTurn();
                 if (!busy && !battle.EnemyTurn && !battle.Finished && keyboard.tabKey.wasPressedThisFrame)
                 {
@@ -161,7 +215,7 @@ namespace GothicTactics.Skirmish
             int next = -1;
             if (!OverUI(pointer))
             {
-                var ray = view.ScreenPointToRay(pointer); var plane = new Plane(Vector3.up,Vector3.zero);
+                var ray = PointerRay(pointer); var plane = new Plane(Vector3.up,Vector3.zero);
                 if (plane.Raycast(ray,out float distance))
                 {
                     Vector3 point = ray.GetPoint(distance); float nearest = .95f*.95f;
@@ -175,7 +229,7 @@ namespace GothicTactics.Skirmish
                 float closest = 25*UiScale;
                 foreach (var u in battle.Units.Where(u => u.Alive))
                 {
-                    Vector3 projected = view.WorldToScreenPoint(pieces[u].position+Vector3.up*.9f);
+                    Vector3 projected = WorldToScreen(pieces[u].position+view.transform.up*1.25f);
                     float distanceToPointer = Vector2.Distance(pointer,new Vector2(projected.x,projected.y));
                     if (projected.z > 0 && distanceToPointer < closest)
                     { closest = distanceToPointer; next = u.CellId; }
@@ -251,15 +305,34 @@ namespace GothicTactics.Skirmish
             title = new GUIStyle(GUI.skin.label) { fontSize = 25, fontStyle = FontStyle.Bold };
             body = new GUIStyle(GUI.skin.label) { fontSize = 15, wordWrap = true };
             small = new GUIStyle(body) { fontSize = 12 };
-            button = new GUIStyle(GUI.skin.button) { fontSize = 14, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(12,8,6,6) };
+            button = new GUIStyle(GUI.skin.button) { fontSize = 14, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(12,8,6,6), border = new RectOffset(2,2,2,2) };
+            title.normal.textColor = new Color(.82f,.69f,.44f);
+            body.normal.textColor = new Color(.79f,.74f,.64f);
+            small.normal.textColor = new Color(.66f,.61f,.52f);
+            button.normal.background = art.Button; button.hover.background = art.Button; button.active.background = art.Button;
+            button.normal.textColor = new Color(.84f,.77f,.62f);
+            button.hover.textColor = new Color(1f,.87f,.59f); button.active.textColor = Color.white;
         }
         private void Panel(Rect rect)
         {
-            GUI.color = new Color(.055f,.085f,.10f,.97f); GUI.DrawTexture(rect,Texture2D.whiteTexture); GUI.color = Color.white;
+            GUI.color = Color.white;
+            GUI.DrawTextureWithTexCoords(rect,art.Panel,new Rect(0,0,rect.width/64,rect.height/64));
+            GUI.color = new Color(.38f,.29f,.16f);
+            GUI.DrawTexture(new Rect(rect.x,rect.y,rect.width,1),Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(rect.x,rect.yMax-1,rect.width,1),Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(rect.x,rect.y,1,rect.height),Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(rect.xMax-1,rect.y,1,rect.height),Texture2D.whiteTexture);
+            GUI.color = Color.white;
         }
         private void OnGUI()
         {
             if (battle == null) return;
+            if (pixelScene != null)
+            {
+                GUI.color = Color.white;
+                GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height),Texture2D.blackTexture);
+                GUI.DrawTexture(new Rect(sceneRect.x,Screen.height-sceneRect.yMax,sceneRect.width,sceneRect.height),pixelScene,ScaleMode.StretchToFill,false);
+            }
             Styles(); float scale = UiScale, width = Screen.width/scale, height = Screen.height/scale;
             GUI.matrix = Matrix4x4.TRS(Vector3.zero,Quaternion.identity,new Vector3(scale,scale,1));
             Panel(new Rect(0,0,width,76));
@@ -272,7 +345,7 @@ namespace GothicTactics.Skirmish
             foreach (var u in battle.Units.Where(u => !u.Enemy))
             {
                 GUI.enabled = u.Alive && !busy && !battle.EnemyTurn && !battle.Finished;
-                GUI.backgroundColor = u == selected ? teal : Color.white;
+                GUI.backgroundColor = u == selected ? new Color(.85f,.66f,.37f) : Color.white;
                 if (GUI.Button(new Rect(14,y,230,64),u.Name + "  /  " + u.Role + "\n" + (u.Alive ? u.HP+"/"+u.MaxHP+" HP    "+u.AP+"/6 AP" : "FALLEN"),button))
                 { selected = u; Refresh(); }
                 y += 72;
@@ -289,12 +362,12 @@ namespace GothicTactics.Skirmish
                 if (GUI.Button(new Rect(14,y,230,37),"Tonic +6 HP  /  2 AP  /  "+selected.Tonics+" left",button)) { battle.Heal(selected); Refresh(); }
                 GUI.enabled = true; y += 53;
             }
-            GUI.Label(new Rect(18,y,224,50),"Teal: movement  •  Red: attack\nGold: selected hunter",small); y += 52;
+            GUI.Label(new Rect(18,y,224,50),"Sage: movement  •  Red: attack\nGold: selected hunter / path",small); y += 52;
             foreach (string line in battle.Log.Take(Mathf.Max(0,(int)((height-125-y)/40))))
             { GUI.Label(new Rect(18,y,224,38),line,small); y += 40; }
             foreach (var u in battle.Units.Where(u => u.Alive))
             {
-                Vector3 p = view.WorldToScreenPoint(pieces[u].position+Vector3.up*2);
+                Vector3 p = WorldToScreen(pieces[u].position+view.transform.up*2.65f);
                 if (p.z <= 0) continue;
                 float px = p.x/scale, py = (Screen.height-p.y)/scale;
                 if (px < 300 || py < 90 || py > height-120) continue;
@@ -327,20 +400,25 @@ namespace GothicTactics.Skirmish
         }
         private Mesh BuildHex()
         {
-            var vertices = new Vector3[7]; var triangles = new int[18];
+            var vertices = new Vector3[7]; var uv = new Vector2[7]; uv[0]=new Vector2(.5f,.5f); var triangles = new int[18];
             for (int i = 0; i < 6; i++)
             {
                 float angle = (60*i+30)*Mathf.Deg2Rad;
-                vertices[i+1] = new Vector3(Mathf.Cos(angle)*.95f,0,Mathf.Sin(angle)*.95f);
+                vertices[i+1] = new Vector3(Mathf.Cos(angle)*.99f,0,Mathf.Sin(angle)*.99f);
+                uv[i+1] = new Vector2(vertices[i+1].x*.5f+.5f,vertices[i+1].z*.5f+.5f);
                 triangles[i*3] = 0; triangles[i*3+1] = i == 5 ? 1 : i+2; triangles[i*3+2] = i+1;
             }
-            var mesh = new Mesh { name = "Skirmish Hex", vertices = vertices, triangles = triangles };
+            var mesh = new Mesh { name = "Skirmish Hex", vertices = vertices, uv = uv, triangles = triangles };
             mesh.RecalculateNormals(); return mesh;
         }
         private void OnDestroy()
         {
             foreach (var mat in materials) if (mat != null) Destroy(mat);
             if (hex != null) Destroy(hex);
+            if (view != null) view.targetTexture = null;
+            if (presentation != null) Destroy(presentation.gameObject);
+            if (pixelScene != null) { pixelScene.Release(); Destroy(pixelScene); }
+            art?.Dispose();
         }
     }
 }

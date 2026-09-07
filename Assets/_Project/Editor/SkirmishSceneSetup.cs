@@ -3,6 +3,7 @@ using GothicTactics.Skirmish;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace GothicTactics.Editor
 {
@@ -17,10 +18,12 @@ namespace GothicTactics.Editor
             var camera = new GameObject("Main Camera",typeof(Camera),typeof(AudioListener));
             camera.tag = "MainCamera";
             var light = new GameObject("Moonlight",typeof(Light)).GetComponent<Light>();
-            light.type = LightType.Directional; light.intensity = 1.5f;
-            light.color = new Color(.77f,.85f,1f);
+            light.type = LightType.Directional; light.intensity = .85f;
+            light.color = new Color(.72f,.70f,.66f);
             light.transform.rotation = Quaternion.Euler(50,-30,0);
-            RenderSettings.ambientLight = new Color(.3f,.35f,.4f);
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(.24f,.21f,.19f);
+            RenderSettings.skybox = null;
             var game = new GameObject("Ashen Bell Skirmish",typeof(SkirmishController));
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(scene,"Assets/Scenes/AshenBell.unity");
