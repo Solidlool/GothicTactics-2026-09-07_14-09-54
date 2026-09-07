@@ -12,6 +12,8 @@
 
 - Hover a tile to highlight it.
 - Left-click a tile to select it.
+- Left-click the red prototype unit to select it and show reachable tiles.
+- Left-click a green reachable tile to move; movement costs one AP per hex.
 - Use WASD or the arrow keys to pan the camera.
 - Use the mouse wheel to zoom.
 

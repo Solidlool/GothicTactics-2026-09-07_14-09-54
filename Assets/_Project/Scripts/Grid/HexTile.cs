@@ -1,4 +1,5 @@
 using UnityEngine;
+using GothicTactics.Units;
 
 namespace GothicTactics.Grid
 {
@@ -10,13 +11,17 @@ namespace GothicTactics.Grid
         [SerializeField] private Color normalColour = new(0.16f, 0.17f, 0.19f);
         [SerializeField] private Color hoverColour = new(0.32f, 0.36f, 0.40f);
         [SerializeField] private Color selectedColour = new(0.55f, 0.18f, 0.12f);
+        [SerializeField] private Color reachableColour = new(0.18f, 0.42f, 0.34f);
 
         private MeshRenderer meshRenderer;
         private MaterialPropertyBlock properties;
         private bool isHovered;
         private bool isSelected;
+        private bool isReachable;
 
         public HexCoordinates Coordinates { get; private set; }
+        public HexUnit Occupant { get; private set; }
+        public bool IsOccupied => Occupant != null;
 
         public void Initialise(HexCoordinates coordinates)
         {
@@ -41,11 +46,26 @@ namespace GothicTactics.Grid
             RefreshColour();
         }
 
+        public void SetReachable(bool value)
+        {
+            if (isReachable == value) return;
+            isReachable = value;
+            RefreshColour();
+        }
+
+        public void SetOccupant(HexUnit occupant)
+        {
+            Occupant = occupant;
+        }
+
         private void RefreshColour()
         {
             if (meshRenderer == null) return;
             properties ??= new MaterialPropertyBlock();
-            properties.SetColor(BaseColor, isSelected ? selectedColour : isHovered ? hoverColour : normalColour);
+            var colour = isSelected ? selectedColour :
+                isHovered ? hoverColour :
+                isReachable ? reachableColour : normalColour;
+            properties.SetColor(BaseColor, colour);
             meshRenderer.SetPropertyBlock(properties);
         }
     }

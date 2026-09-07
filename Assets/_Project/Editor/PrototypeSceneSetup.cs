@@ -1,5 +1,6 @@
 using GothicTactics.CameraSystem;
 using GothicTactics.Grid;
+using GothicTactics.Units;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -37,6 +38,19 @@ namespace GothicTactics.Editor
             gridSerialized.FindProperty("tileMaterial").objectReferenceValue = GetOrCreateMaterial();
             gridSerialized.ApplyModifiedPropertiesWithoutUndo();
 
+            var unitObject = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            unitObject.name = "Prototype Hunter";
+            unitObject.transform.localScale = new Vector3(0.55f, 0.7f, 0.55f);
+            var unit = unitObject.AddComponent<HexUnit>();
+            var unitSerialized = new SerializedObject(unit);
+            unitSerialized.FindProperty("grid").objectReferenceValue = grid;
+            unitSerialized.FindProperty("startingQ").intValue = 1;
+            unitSerialized.FindProperty("startingR").intValue = 1;
+            unitSerialized.ApplyModifiedPropertiesWithoutUndo();
+
+            var unitRenderer = unitObject.GetComponent<MeshRenderer>();
+            unitRenderer.sharedMaterial = GetOrCreateUnitMaterial();
+
             EditorSceneManager.SaveScene(scene, ScenePath);
             Selection.activeGameObject = gridObject;
             Debug.Log($"Created prototype scene at {ScenePath}. Press Play to generate and interact with the grid.");
@@ -56,6 +70,23 @@ namespace GothicTactics.Editor
             material.SetFloat("_Smoothness", 0.1f);
             material.SetFloat("_Metallic", 0f);
             AssetDatabase.CreateAsset(material, MaterialPath);
+            return material;
+        }
+
+        private static Material GetOrCreateUnitMaterial()
+        {
+            const string unitMaterialPath = "Assets/_Project/PrototypeUnitMaterial.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(unitMaterialPath);
+            if (material != null) return material;
+
+            var shader = Shader.Find("Universal Render Pipeline/Lit");
+            material = new Material(shader)
+            {
+                name = "Prototype Unit Material",
+                color = new Color(0.62f, 0.16f, 0.12f)
+            };
+            material.SetFloat("_Smoothness", 0.1f);
+            AssetDatabase.CreateAsset(material, unitMaterialPath);
             return material;
         }
     }

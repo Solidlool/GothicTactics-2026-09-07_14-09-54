@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using GothicTactics.Units;
 
 namespace GothicTactics.Grid
 {
@@ -19,6 +20,9 @@ namespace GothicTactics.Grid
         private readonly Dictionary<HexCoordinates, HexTile> tiles = new();
         private HexTile hoveredTile;
         private HexTile selectedTile;
+        private HexUnit selectedUnit;
+        private readonly HashSet<HexTile> reachableTiles = new();
+        private readonly Dictionary<HexTile, int> movementCosts = new();
         private Mesh sharedHexMesh;
 
         public IReadOnlyDictionary<HexCoordinates, HexTile> Tiles => tiles;
@@ -51,6 +55,17 @@ namespace GothicTactics.Grid
 
         public bool TryGetTile(HexCoordinates coordinates, out HexTile tile) => tiles.TryGetValue(coordinates, out tile);
 
+        public bool PlaceUnit(HexUnit unit, HexCoordinates coordinates)
+        {
+            if (!TryGetTile(coordinates, out var tile) || tile.IsOccupied) return false;
+
+            unit.CurrentTile?.SetOccupant(null);
+            tile.SetOccupant(unit);
+            unit.SetCurrentTile(tile);
+            unit.transform.position = tile.transform.position + Vector3.up;
+            return true;
+        }
+
         private void CreateTile(HexCoordinates coordinates)
         {
             var tileObject = new GameObject();
@@ -81,7 +96,8 @@ namespace GothicTactics.Grid
             if (interactionCamera == null || Mouse.current == null) return;
 
             var ray = interactionCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
-            var nextHovered = Physics.Raycast(ray, out var hit) ? hit.collider.GetComponent<HexTile>() : null;
+            var hasHit = Physics.Raycast(ray, out var hit);
+            var nextHovered = hasHit ? hit.collider.GetComponent<HexTile>() : null;
 
             if (nextHovered != hoveredTile)
             {
@@ -90,12 +106,73 @@ namespace GothicTactics.Grid
                 hoveredTile?.SetHovered(true);
             }
 
-            if (hoveredTile != null && Mouse.current.leftButton.wasPressedThisFrame)
+            if (!Mouse.current.leftButton.wasPressedThisFrame || !hasHit) return;
+
+            var clickedUnit = hit.collider.GetComponentInParent<HexUnit>();
+            if (clickedUnit != null)
             {
-                selectedTile?.SetSelected(false);
-                selectedTile = hoveredTile;
-                selectedTile.SetSelected(true);
-                Debug.Log($"Selected hex {selectedTile.Coordinates}", selectedTile);
+                SelectUnit(clickedUnit);
+                return;
+            }
+
+            if (hoveredTile == null) return;
+
+            if (selectedUnit != null && movementCosts.TryGetValue(hoveredTile, out var movementCost))
+            {
+                if (selectedUnit.TrySpendActionPoints(movementCost))
+                {
+                    PlaceUnit(selectedUnit, hoveredTile.Coordinates);
+                    SelectUnit(selectedUnit);
+                }
+                return;
+            }
+
+            selectedTile?.SetSelected(false);
+            selectedTile = hoveredTile;
+            selectedTile.SetSelected(true);
+            Debug.Log($"Selected hex {selectedTile.Coordinates}", selectedTile);
+        }
+
+        private void SelectUnit(HexUnit unit)
+        {
+            selectedUnit = unit;
+            selectedTile?.SetSelected(false);
+            selectedTile = unit.CurrentTile;
+            selectedTile?.SetSelected(true);
+            RefreshReachableTiles();
+            Debug.Log($"Selected {unit.name}: {unit.CurrentActionPoints}/{unit.MaximumActionPoints} AP", unit);
+        }
+
+        private void RefreshReachableTiles()
+        {
+            foreach (var tile in reachableTiles) tile.SetReachable(false);
+            reachableTiles.Clear();
+            movementCosts.Clear();
+
+            if (selectedUnit?.CurrentTile == null) return;
+
+            var frontier = new Queue<HexTile>();
+            var cost = new Dictionary<HexTile, int>();
+            frontier.Enqueue(selectedUnit.CurrentTile);
+            cost[selectedUnit.CurrentTile] = 0;
+
+            while (frontier.Count > 0)
+            {
+                var current = frontier.Dequeue();
+                for (var direction = 0; direction < 6; direction++)
+                {
+                    var neighbourCoordinates = current.Coordinates.Neighbour(direction);
+                    if (!TryGetTile(neighbourCoordinates, out var neighbour) || neighbour.IsOccupied) continue;
+
+                    var nextCost = cost[current] + 1;
+                    if (nextCost > selectedUnit.CurrentActionPoints || cost.ContainsKey(neighbour)) continue;
+
+                    cost[neighbour] = nextCost;
+                    frontier.Enqueue(neighbour);
+                    reachableTiles.Add(neighbour);
+                    movementCosts[neighbour] = nextCost;
+                    neighbour.SetReachable(true);
+                }
             }
         }
 
