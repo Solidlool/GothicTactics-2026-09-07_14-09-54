@@ -121,8 +121,10 @@ namespace GothicTactics.Grid
                 vertices[i + 1] = new Vector3(radius * Mathf.Cos(angle), 0f, radius * Mathf.Sin(angle));
                 var triangle = i * 3;
                 triangles[triangle] = 0;
-                triangles[triangle + 1] = i + 1;
-                triangles[triangle + 2] = i == 5 ? 1 : i + 2;
+                // Wind clockwise when viewed from above so the visible face and
+                // generated normals point towards the isometric camera.
+                triangles[triangle + 1] = i == 5 ? 1 : i + 2;
+                triangles[triangle + 2] = i + 1;
             }
 
             var mesh = new Mesh { name = "Generated Hex Tile" };
