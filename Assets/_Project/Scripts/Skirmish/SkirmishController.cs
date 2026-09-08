@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 
 namespace GothicTactics.Skirmish
 {
-    public sealed class SkirmishController : MonoBehaviour
+    public sealed partial class SkirmishController : MonoBehaviour
     {
         private SkirmishBattle battle;
         private SkirmishBattle.Unit selected;
@@ -58,7 +58,7 @@ namespace GothicTactics.Skirmish
         private void UpdatePixelTarget()
         {
             float scale = UiScale;
-            sceneRect = new Rect(270*scale,110*scale,Mathf.Max(1,Screen.width-270*scale),Mathf.Max(1,Screen.height-190*scale));
+            sceneRect = new Rect(270*scale,230*scale,Mathf.Max(1,Screen.width-270*scale),Mathf.Max(1,Screen.height-310*scale));
             // Integer pixel enlargement; point sampling prevents a blurry upscale.
             int zoom = Mathf.Max(1,Mathf.CeilToInt(sceneRect.height/240f));
             int width = Mathf.Max(1,Mathf.FloorToInt(sceneRect.width/zoom));
@@ -118,7 +118,8 @@ namespace GothicTactics.Skirmish
             foreach (var mat in materials) Destroy(mat);
             materials.Clear(); pieces.Clear(); tiles.Clear(); torches.Clear(); actors.Clear(); hover = -1;
             world = new GameObject("Generated Skirmish").transform; world.SetParent(transform);
-            battle = new SkirmishBattle();
+            battle = new SkirmishBattle(loadouts,Random.Range(0,int.MaxValue));
+            armedCard=null; armedInnate=false;
             var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Stone;
             var ruinMat = MakeMaterial(new Color(.52f,.48f,.42f)); ruinMat.mainTexture = art.Stone;
             var gold = MakeMaterial(new Color(.38f,.28f,.15f));
@@ -147,11 +148,11 @@ namespace GothicTactics.Skirmish
                 Primitive("Foot shadow", PrimitiveType.Cylinder,root.position+Vector3.up*.025f,new Vector3(.78f,.012f,.60f),shadow,root);
                 var image = new GameObject(u.Role+" sprite",typeof(SpriteRenderer)).GetComponent<SpriteRenderer>();
                 image.transform.SetParent(root,false); image.transform.localPosition=Vector3.up*.08f;
-                image.transform.rotation=view.transform.rotation; image.sprite=art.Character(u.Role);
+                image.transform.rotation=view.transform.rotation; image.sprite=art.Character(SpriteRole(u));
                 actors.Add(image);
                 pieces[u] = root;
             }
-            selected = battle.Units[0]; hint = "Destroy all four revenants. Keep at least one hunter alive.";
+            selected = battle.Units[0]; hint = "Defeat every revenant. Keep at least one hero alive.";
             Refresh();
         }
         private void Refresh()
@@ -177,6 +178,12 @@ namespace GothicTactics.Skirmish
                 if (path.Contains(c.Id)) color = new Color(.77f,.74f,.47f);
                 var occupant = battle.At(c.Id);
                 if (selected != null && battle.CanAttack(selected,occupant)) color = new Color(.72f,.30f,.22f);
+                if(armedCard!=null)
+                {
+                    color=c.Blocked ? stone*.75f : stone;
+                    if(battle.CardError(selected,armedCard,c.Id,armedInnate)==null)
+                        color=armedCard.Target==CardTarget.Enemy ? new Color(.83f,.30f,.20f) : new Color(.70f,.77f,.48f);
+                }
                 if (selected != null && selected.Alive && selected.CellId == c.Id) color = new Color(.95f,.73f,.34f);
                 if (c.Id == hover) color = Color.Lerp(color,Color.white,.25f);
                 block.SetColor("_BaseColor",color); block.SetColor("_Color",color); tiles[c.Id].SetPropertyBlock(block);
@@ -184,7 +191,7 @@ namespace GothicTactics.Skirmish
         }
         private bool OverUI(Vector2 screen)
         {
-            return !sceneRect.Contains(screen) || battle.Finished;
+            return preparing || !sceneRect.Contains(screen) || battle.Finished;
         }
         private void Update()
         {
@@ -194,6 +201,7 @@ namespace GothicTactics.Skirmish
                 torches[i].intensity = 2.1f + Mathf.Sin(Time.time*8.1f+i*2.3f)*.22f + Mathf.Sin(Time.time*17.3f+i)*.09f;
             foreach (var actor in actors)
                 actor.sortingOrder = -(int)(Vector3.Dot(actor.transform.position,view.transform.forward)*100);
+            if (preparing) return;
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
@@ -202,11 +210,12 @@ namespace GothicTactics.Skirmish
                 Vector3 right = view.transform.right; right.y=0;
                 Vector3 up = view.transform.up; up.y=0;
                 focus += (right.normalized*x+up.normalized*z)*Time.deltaTime*10; focus.x = Mathf.Clamp(focus.x,0,26); focus.z = Mathf.Clamp(focus.z,-4,18); PositionCamera();
+                if (keyboard.escapeKey.wasPressedThisFrame) { armedCard=null; armedInnate=false; Paint(); }
                 if (keyboard.spaceKey.wasPressedThisFrame) BeginEnemyTurn();
                 if (!busy && !battle.EnemyTurn && !battle.Finished && keyboard.tabKey.wasPressedThisFrame)
                 {
                     var squad = battle.Units.Where(u => u.Alive && !u.Enemy).ToList();
-                    selected = squad[(squad.IndexOf(selected)+1)%squad.Count]; Refresh();
+                    selected = squad[(squad.IndexOf(selected)+1)%squad.Count]; armedCard=null; armedInnate=false; Refresh();
                 }
             }
             var mouse = Mouse.current; if (mouse == null) return;
@@ -239,7 +248,8 @@ namespace GothicTactics.Skirmish
             if (hover >= 0 && !busy && !battle.EnemyTurn && !battle.Finished && mouse.leftButton.wasPressedThisFrame)
             {
                 var target = battle.At(hover);
-                if (target != null && !target.Enemy) { selected = target; Refresh(); }
+                if(armedCard!=null) { UseArmedCard(hover); return; }
+                if (target != null && !target.Enemy) { selected = target; armedCard=null; armedInnate=false; Refresh(); }
                 else if (target != null && selected != null)
                 {
                     if (battle.Attack(selected,target)) { StartCoroutine(Strike(selected,target)); Refresh(); }
@@ -275,7 +285,8 @@ namespace GothicTactics.Skirmish
         }
         private void BeginEnemyTurn()
         {
-            if (busy || battle == null || battle.EnemyTurn || battle.Finished) return;
+            if (preparing || busy || battle == null || battle.EnemyTurn || battle.Finished) return;
+            armedCard=null; armedInnate=false;
             StartCoroutine(EnemyTurn());
         }
         private IEnumerator EnemyTurn()
@@ -335,66 +346,55 @@ namespace GothicTactics.Skirmish
             }
             Styles(); float scale = UiScale, width = Screen.width/scale, height = Screen.height/scale;
             GUI.matrix = Matrix4x4.TRS(Vector3.zero,Quaternion.identity,new Vector3(scale,scale,1));
+            if(preparing) { DrawPreparation(width,height); GUI.matrix=Matrix4x4.identity; return; }
             Panel(new Rect(0,0,width,76));
             GUI.Label(new Rect(22,10,550,34),"GOTHIC TACTICS  /  THE ASHEN BELL",title);
-            GUI.Label(new Rect(22,45,720,24),"A ruined sanctuary. Three hunters. One last vigil.  •  Defeat every revenant.",small);
+            GUI.Label(new Rect(22,45,720,24),"A ruined sanctuary. A shared player turn.  •  Defeat every revenant.",small);
             GUI.Label(new Rect(width-280,15,265,35),"ROUND " + battle.Round + "  /  " + (battle.EnemyTurn ? "REVENANTS" : "YOUR TURN"),body);
-            Panel(new Rect(0,80,260,height-190));
+            Panel(new Rect(0,80,260,height-310));
             GUI.Label(new Rect(18,94,230,25),"YOUR HUNTERS",body);
             float y = 126;
             foreach (var u in battle.Units.Where(u => !u.Enemy))
             {
                 GUI.enabled = u.Alive && !busy && !battle.EnemyTurn && !battle.Finished;
                 GUI.backgroundColor = u == selected ? new Color(.85f,.66f,.37f) : Color.white;
-                if (GUI.Button(new Rect(14,y,230,64),u.Name + "  /  " + u.Role + "\n" + (u.Alive ? u.HP+"/"+u.MaxHP+" HP    "+u.AP+"/6 AP" : "FALLEN"),button))
-                { selected = u; Refresh(); }
-                y += 72;
+                if (GUI.Button(new Rect(14,y,230,54),u.Name + "  /  " + u.Role + "\n" + (u.Alive ? u.HP+"/"+u.MaxHP+" HP  "+u.Shield+" SH  "+u.AP+"/6 AP" : "FALLEN"),button))
+                { selected = u; armedCard=null; armedInnate=false; Refresh(); }
+                y += 60;
             }
             GUI.backgroundColor = Color.white; GUI.enabled = true;
-            if (selected != null)
+            if(selected?.Hero!=null)
             {
-                y += 8;
-                GUI.Label(new Rect(18,y,230,48),selected.Damage+" damage  •  "+selected.Range+" hex range\nAttack: 2 AP  /  Move: 1 AP per hex",small); y += 55;
-                GUI.enabled = !busy && battle.CanAct(selected) && !battle.EnemyTurn && selected.AP > 0;
-                if (GUI.Button(new Rect(14,y,230,37),"Guard  /  spend remaining AP",button)) { battle.Guard(selected); Refresh(); }
-                y += 44;
-                GUI.enabled = !busy && battle.CanAct(selected) && !battle.EnemyTurn && selected.AP >= 2 && selected.Tonics > 0 && selected.HP < selected.MaxHP;
-                if (GUI.Button(new Rect(14,y,230,37),"Tonic +6 HP  /  2 AP  /  "+selected.Tonics+" left",button)) { battle.Heal(selected); Refresh(); }
-                GUI.enabled = true; y += 53;
+                GUI.Label(new Rect(18,y+5,224,22),selected.Hero.Affinities+" / "+selected.Hero.Resource+" "+selected.Resource+"/3",small); y+=30;
+                GUI.Label(new Rect(18,y,224,54),selected.Hero.Passive,small); y+=58;
+                GUI.enabled=!busy && !battle.EnemyTurn && battle.CanAct(selected) && !selected.InnateUsed && selected.AP>=1;
+                var innate=HeroCards.Innate(selected.Hero.Innate);
+                if(GUI.Button(new Rect(14,y,230,34),innate.Name+" / 1 AP",button)) Arm(innate,true);
+                GUI.enabled=true; y+=38;
+                GUI.Label(new Rect(18,y,224,40),innate.Text,small); y+=43;
+                GUI.enabled=!busy && !battle.EnemyTurn && battle.CanAct(selected) && selected.AP>0;
+                if(GUI.Button(new Rect(14,y,230,30),"Guard / remaining AP",button)) { battle.Guard(selected); armedCard=null; Refresh(); }
+                GUI.enabled=true; y+=36;
             }
-            GUI.Label(new Rect(18,y,224,50),"Sage: movement  •  Red: attack\nGold: selected hunter / path",small); y += 52;
-            foreach (string line in battle.Log.Take(Mathf.Max(0,(int)((height-125-y)/40))))
-            { GUI.Label(new Rect(18,y,224,38),line,small); y += 40; }
+            foreach(string line in battle.Log.Take(Mathf.Max(0,(int)((height-240-y)/38))))
+            { GUI.Label(new Rect(18,y,224,36),line,small); y+=38; }
             foreach (var u in battle.Units.Where(u => u.Alive))
             {
                 Vector3 p = WorldToScreen(pieces[u].position+view.transform.up*2.65f);
                 if (p.z <= 0) continue;
                 float px = p.x/scale, py = (Screen.height-p.y)/scale;
-                if (px < 300 || py < 90 || py > height-120) continue;
+                if (px < 300 || py < 90 || py > height-235) continue;
                 Panel(new Rect(px-48,py,96,29));
                 GUI.Label(new Rect(px-44,py+1,90,20),u.Name,small);
                 GUI.color = u.Enemy ? red : teal; GUI.DrawTexture(new Rect(px-44,py+23,88f*u.HP/u.MaxHP,3),Texture2D.whiteTexture); GUI.color = Color.white;
             }
-            Panel(new Rect(0,height-106,width,106));
-            string context = hint;
-            if (hover >= 0 && selected != null)
-            {
-                var target = battle.At(hover);
-                if (target != null) context = target.Name+"  /  "+target.HP+" HP"+(battle.CanAttack(selected,target) ? "  •  Click: "+battle.AttackDamage(selected,target)+" damage / 2 AP" : "");
-                else if (costs.TryGetValue(hover,out int cost)) context = "Click to move  /  "+cost+" AP  /  "+(selected.AP-cost)+" AP remaining";
-                else context = battle.Cells[hover].Blocked ? "Ruins block movement and ranged sight." : "This hex is out of reach.";
-            }
-            GUI.Label(new Rect(22,height-91,width-330,40),context,body);
-            GUI.Label(new Rect(22,height-43,width-330,26),"CLICK select / move / attack    •    TAB next hunter    •    WASD pan    •    SCROLL zoom    •    SPACE end turn",small);
-            GUI.enabled = !busy && !battle.EnemyTurn && !battle.Finished;
-            if (GUI.Button(new Rect(width-265,height-85,240,56),"END TURN  →",button)) BeginEnemyTurn();
-            GUI.enabled = true;
+            DrawHand(width,height);
             if (battle.Finished)
             {
                 Panel(new Rect(width/2-230,height/2-120,460,240));
                 GUI.Label(new Rect(width/2-205,height/2-96,410,38),battle.Victory ? "THE SANCTUARY IS YOURS" : "THE VIGIL HAS ENDED",title);
-                GUI.Label(new Rect(width/2-205,height/2-43,400,70),battle.Victory ? "The bell will sound again.\nSurvivors: "+battle.Units.Count(u => !u.Enemy && u.Alive)+" / 3   •   Rounds: "+battle.Round : "Your hunters have fallen. Try holding the gaps, guarding, and focusing your attacks.",body);
-                if (GUI.Button(new Rect(width/2-205,height/2+50,410,45),"PLAY AGAIN",button)) Restart();
+                GUI.Label(new Rect(width/2-205,height/2-43,400,70),battle.Victory ? "The bell will sound again.\nSurvivors: "+battle.Units.Count(u => !u.Enemy && u.Alive)+" / "+loadouts.Count+"   •   Rounds: "+battle.Round : "Your hunters have fallen. Try holding the gaps, guarding, and focusing your attacks.",body);
+                if (GUI.Button(new Rect(width/2-205,height/2+50,410,45),"RETURN TO HEROES & DECKS",button)) { preparing=true; armedCard=null; }
             }
             GUI.matrix = Matrix4x4.identity;
         }

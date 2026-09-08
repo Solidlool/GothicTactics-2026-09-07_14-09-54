@@ -5,7 +5,7 @@ using System.Linq;
 namespace GothicTactics.Skirmish
 {
     // Pure rules: no Unity objects, rendering, input, or frame timing.
-    public sealed class SkirmishBattle
+    public sealed partial class SkirmishBattle
     {
         public const int Width = 11, Height = 9, MaxAP = 6, AttackCost = 2;
         private static readonly int[,] Directions = { {1,0}, {1,-1}, {0,-1}, {-1,0}, {-1,1}, {0,1} };
@@ -20,6 +20,12 @@ namespace GothicTactics.Skirmish
             public string Name, Role;
             public bool Enemy, Guarding;
             public int CellId, HP, MaxHP, AP, Damage, Range, Tonics = 1;
+            public HeroDefinition Hero;
+            public int Shield, Resource;
+            public bool InnateUsed;
+            public readonly List<string> Hand = new List<string>();
+            public readonly List<string> DrawPile = new List<string>();
+            public readonly List<string> Discard = new List<string>();
             public bool Alive => HP > 0;
         }
         public readonly Cell[] Cells = new Cell[Width * Height];
@@ -111,20 +117,20 @@ namespace GothicTactics.Skirmish
         public bool CanAct(Unit u) => !Finished && u != null && u.Alive && u.Enemy == EnemyTurn;
         public bool CanAttack(Unit u, Unit target) => CanAct(u) && target != null && target.Alive &&
             target.Enemy != u.Enemy && u.AP >= AttackCost && Distance(u.CellId, target.CellId) <= u.Range && HasSight(u.CellId, target.CellId);
-        public int AttackDamage(Unit u, Unit target) => Math.Max(1, u.Damage - (target.Guarding ? 2 : 0));
+        public int AttackDamage(Unit u, Unit target) => Math.Max(0, Math.Max(1, u.Damage - (target.Guarding ? 2 : 0)) - target.Shield);
         public bool Move(Unit u, int destination)
         {
             if (!CanAct(u)) return false;
             var path = Path(u, destination);
             if (path.Count == 0 || path.Count > u.AP) return false;
-            u.CellId = destination; u.AP -= path.Count; u.Guarding = false;
+            u.CellId = destination; u.AP -= path.Count; u.Guarding = false; MovementPassive(u,path.Count);
             return true;
         }
         public bool Attack(Unit u, Unit target)
         {
             if (!CanAttack(u, target)) return false;
-            int damage = AttackDamage(u, target);
-            u.AP -= AttackCost; u.Guarding = false; target.HP = Math.Max(0, target.HP-damage);
+            u.AP -= AttackCost; u.Guarding = false;
+            int damage = DealDamage(u,target,u.Damage);
             Note(u.Name + " hits " + target.Name + " for " + damage + (target.Alive ? "." : ". Slain."));
             return true;
         }
@@ -142,10 +148,16 @@ namespace GothicTactics.Skirmish
         public void EndTurn()
         {
             if (Finished) return;
+            if (!EnemyTurn)
+                foreach (var hero in Units.Where(u=>!u.Enemy && u.Hero!=null))
+                { hero.Discard.AddRange(hero.Hand); hero.Hand.Clear(); }
             EnemyTurn = !EnemyTurn;
             if (!EnemyTurn) Round++;
             foreach (var u in Units.Where(u => u.Alive && u.Enemy == EnemyTurn))
-            { u.AP = MaxAP; u.Guarding = false; }
+            {
+                u.AP = MaxAP; u.Guarding = false; u.Shield=0; u.InnateUsed=false;
+                if(u.Hero!=null) Draw(u,HeroCards.HandSize);
+            }
             Note(EnemyTurn ? "The revenants advance." : "Round " + Round + ": your squad is ready.");
         }
         // One bounded AI action. False means the unit has completed its turn.
