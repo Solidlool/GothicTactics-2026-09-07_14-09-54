@@ -72,7 +72,12 @@ namespace GothicTactics.Skirmish
                 var path=Path(u,targetId);
                 if(path.Count==0 || path.Count>card.Power) return "Choose a reachable empty hex within "+card.Power+" steps.";
             }
-            else if(Distance(u.CellId,targetId)>card.Range || !HasSight(u.CellId,targetId)) return "Target is out of range or behind a ruin.";
+            else
+            {
+                int distance=Distance(u.CellId,targetId);
+                if(distance>card.Range) return "Out of range: target is "+distance+" hexes away; "+card.Name+" has range "+card.Range+".";
+                if(!HasSight(u.CellId,targetId)) return "A ruin blocks line of sight to this target.";
+            }
             if(card.Effect==CardEffect.Heal && target.HP==target.MaxHP) return "Target is already at full HP.";
             if(card.Effect==CardEffect.Draw && u.DrawPile.Count+u.Discard.Count==0) return "No cards left to draw.";
             if(card.Effect==CardEffect.Draw && u.Hand.Count-(innate ? 0 : 1)>=HeroCards.HandLimit) return "Hand is full.";
@@ -80,7 +85,12 @@ namespace GothicTactics.Skirmish
         }
         public bool PlayCard(Unit u,CardDefinition card,int targetId,bool innate=false)
         {
-            string error=CardError(u,card,targetId,innate);
+            return TryPlayCard(u,card,targetId,out _,innate);
+        }
+        // UI and rules callers share one validation boundary. Nothing is spent on failure.
+        public bool TryPlayCard(Unit u,CardDefinition card,int targetId,out string error,bool innate=false)
+        {
+            error=CardError(u,card,targetId,innate);
             if(error!=null) { Note(error); return false; }
             var target=At(targetId);
             int power=card.Power+(card.SpendResource ? u.Resource : 0);

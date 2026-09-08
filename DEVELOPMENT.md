@@ -25,7 +25,7 @@ All hero resources cap at 3 and persist until spent. Neutral cards are available
 
 - Each hero starts with a shuffled 10-card deck and draws 5. The hand limit is 8.
 - Select a card, then click a highlighted unit or hex on the battlefield. Self cards also require a click on the selected hero. Click the same card again or press Escape to cancel. Selecting another hero cancels targeting.
-- A card spends its printed AP cost and goes to discard. Invalid targets and insufficient AP consume nothing.
+- A card spends its printed AP cost and goes to discard. Invalid targets and insufficient AP consume nothing. A red banner explains rejected plays for 4.5 seconds, while the selected card stays armed for another target. Range is printed on each card. Valid damage previews account for Guard and shield. Clicks on characters use opaque sprite pixels instead of snapping to nearby units.
 - Unplayed cards discard when the party ends its turn. Each living hero draws 5 at the start of the next party turn. Empty draw piles reshuffle their discard piles.
 - Movement cards cost their printed AP, not one AP per hex. Ordinary movement and basic attacks remain available without cards.
 - Each hero has an innate costing 1 AP, usable once per turn without drawing it.
@@ -81,3 +81,7 @@ Play Mode smoke test: select each hunter, move around a ruin, verify the AP prev
 - Use the mouse wheel to zoom.
 
 The first editor command creates the shared prototype material and scene. Commit those generated assets after verifying the scene.
+
+### Invalid-target regression checks
+
+`Run Hero and Card Checks` now includes legal cards aimed beyond range, a signature with stored resources, blocked line of sight within range, an occupied movement destination, an overlong movement path, wrong-team targets, healing beyond range and clicks outside the board. Each rejection compares hand/draw/discard order, AP, HP, shield, resources, innate state, guard, positions and turn state before and after. It also verifies that the same card succeeds exactly once on the next valid target. These checks require Unity to execute.

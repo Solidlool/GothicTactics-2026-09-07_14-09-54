@@ -10,6 +10,9 @@ namespace GothicTactics.Skirmish
         { new HeroLoadout("warden"),new HeroLoadout("sorcerer"),new HeroLoadout("paladin") };
         private bool preparing=true,armedInnate;
         private CardDefinition armedCard;
+        private string cardFeedback;
+        private float cardFeedbackUntil;
+        private bool cardFeedbackError;
         private int editing;
         private Vector2 libraryScroll,deckScroll,handScroll;
         private static string SpriteRole(SkirmishBattle.Unit u)
@@ -107,16 +110,31 @@ namespace GothicTactics.Skirmish
             if(armedCard==card && armedInnate==innate) { armedCard=null; armedInnate=false; Paint(); return; }
             armedCard=card; armedInnate=innate;
             hint=card.Name+": "+card.Text+" Click a target; Esc cancels.";
+            cardFeedbackUntil=0;
+            if(!battle.Cells.Any(c=>battle.CardError(selected,card,c.Id,innate)==null))
+                ShowCardFeedback("No valid targets for "+card.Name+" right now. Card selected; nothing spent. Esc cancels.",true);
             Paint();
+        }
+        private void ShowCardFeedback(string message,bool error)
+        {
+            cardFeedback=message; cardFeedbackError=error;
+            cardFeedbackUntil=Time.unscaledTime+4.5f;
         }
         private void UseArmedCard(int targetId)
         {
             var card=armedCard; var actor=selected;
             var path=card.Effect==CardEffect.Move ? battle.Path(actor,targetId) : null;
             var target=battle.At(targetId);
-            if(!battle.PlayCard(actor,card,targetId,armedInnate)) { hint=battle.Log[0]; return; }
+            if(!battle.TryPlayCard(actor,card,targetId,out string error,armedInnate))
+            {
+                hint=error;
+                ShowCardFeedback(error+" Card and AP kept.",true);
+                // Keep the selected card armed so the player can choose another target.
+                Paint(); return;
+            }
             armedCard=null; armedInnate=false;
             hint=battle.Log[0];
+            ShowCardFeedback(card.Name+" played / "+card.Cost+" AP. "+hint,false);
             if(card.Effect==CardEffect.Move) StartCoroutine(Walk(actor,path));
             else if(card.Effect==CardEffect.Damage) StartCoroutine(Strike(actor,target));
             Refresh();
@@ -128,7 +146,7 @@ namespace GothicTactics.Skirmish
             if(armedCard!=null && hover>=0)
             {
                 string error=battle.CardError(selected,armedCard,hover,armedInnate);
-                context=error ?? armedCard.Name+" / valid target / "+armedCard.Cost+" AP";
+                context=error ?? CardTargetPreview(armedCard,hover);
             }
             else if(hover>=0 && selected!=null)
             {
@@ -137,6 +155,15 @@ namespace GothicTactics.Skirmish
                 else if(costs.TryGetValue(hover,out int cost)) context="Move: "+cost+" AP / "+(selected.AP-cost)+" remaining";
             }
             GUI.Label(new Rect(20,height-216,width-310,30),context,small);
+            if(Time.unscaledTime<cardFeedbackUntil)
+            {
+                // Persistent feedback is separate from the hover hint and combat log.
+                GUI.color=cardFeedbackError ? new Color(.30f,.055f,.035f,.97f) : new Color(.10f,.22f,.10f,.97f);
+                GUI.DrawTexture(new Rect(280,83,width-300,62),Texture2D.whiteTexture);
+                GUI.color=Color.white;
+                var feedbackStyle=new GUIStyle(body); feedbackStyle.normal.textColor=new Color(1f,.91f,.74f);
+                GUI.Label(new Rect(291,89,width-322,52),cardFeedback,feedbackStyle);
+            }
             if(selected?.Hero!=null)
             {
                 GUI.Label(new Rect(20,height-184,width-310,25),selected.Name+" / HAND "+selected.Hand.Count+" / DRAW "+selected.DrawPile.Count+" / DISCARD "+selected.Discard.Count,small);
@@ -150,7 +177,8 @@ namespace GothicTactics.Skirmish
                     if(GUI.Button(new Rect(x,0,cardWidth,120),"",button)) Arm(card);
                     GUI.enabled=true; GUI.backgroundColor=Color.white;
                     GUI.Label(new Rect(x+8,5,cardWidth-16,39),card.Name+" / "+card.Cost+" AP",body);
-                    GUI.Label(new Rect(x+8,43,cardWidth-16,22),card.HeroId!=null ? "SIGNATURE" : card.Affinity.ToString(),small);
+                    string reach=card.Target==CardTarget.Self ? "Self" : "Range "+card.Range;
+                    GUI.Label(new Rect(x+8,43,cardWidth-16,22),(card.HeroId!=null ? "SIGNATURE" : card.Affinity.ToString())+" / "+reach,small);
                     GUI.Label(new Rect(x+8,65,cardWidth-16,53),card.Text,small);
                 }
                 GUI.EndScrollView();
@@ -160,6 +188,22 @@ namespace GothicTactics.Skirmish
             if(GUI.Button(new Rect(width-265,height-95,240,45),"END TURN / SPACE",button)) BeginEnemyTurn();
             GUI.enabled=true;
             GUI.Label(new Rect(width-260,height-43,237,25),"WASD pan / wheel zoom",small);
+        }
+        private string CardTargetPreview(CardDefinition card,int targetId)
+        {
+            var target=battle.At(targetId);
+            int power=card.Power+(card.SpendResource ? selected.Resource : 0);
+            string effect=card.Text;
+            if(card.Effect==CardEffect.Damage)
+            {
+                int hit=Mathf.Max(1,power-(target.Guarding ? 2 : 0));
+                int absorbed=Mathf.Min(hit,target.Shield);
+                effect=Mathf.Min(target.HP,hit-absorbed)+" HP damage / "+absorbed+" absorbed by shield";
+            }
+            else if(card.Effect==CardEffect.Heal) effect="Restore "+Mathf.Min(power,target.MaxHP-target.HP)+" HP";
+            else if(card.Effect==CardEffect.Shield) effect="Grant "+power+" shield";
+            else if(card.Effect==CardEffect.Move) effect="Move "+battle.Path(selected,targetId).Count+" hexes";
+            return card.Name+" / "+effect+" / "+card.Cost+" AP — click to play";
         }
     }
 }

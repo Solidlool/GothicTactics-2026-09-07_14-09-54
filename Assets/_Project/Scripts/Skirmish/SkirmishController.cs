@@ -120,6 +120,7 @@ namespace GothicTactics.Skirmish
             world = new GameObject("Generated Skirmish").transform; world.SetParent(transform);
             battle = new SkirmishBattle(loadouts,Random.Range(0,int.MaxValue));
             armedCard=null; armedInnate=false;
+            cardFeedbackUntil=0;
             var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Stone;
             var ruinMat = MakeMaterial(new Color(.52f,.48f,.42f)); ruinMat.mainTexture = art.Stone;
             var gold = MakeMaterial(new Color(.38f,.28f,.15f));
@@ -191,7 +192,29 @@ namespace GothicTactics.Skirmish
         }
         private bool OverUI(Vector2 screen)
         {
+            Vector2 guiPoint=new Vector2(screen.x/UiScale,(Screen.height-screen.y)/UiScale);
+            if(Time.unscaledTime<cardFeedbackUntil && new Rect(280,83,Screen.width/UiScale-300,62).Contains(guiPoint)) return true;
             return preparing || !sceneRect.Contains(screen) || battle.Finished;
+        }
+        private SkirmishBattle.Unit CharacterAtPointer(Vector2 pointer)
+        {
+            var ray=PointerRay(pointer); SkirmishBattle.Unit closest=null; float nearest=float.PositiveInfinity;
+            foreach(var pair in pieces)
+            {
+                if(!pair.Key.Alive) continue;
+                var renderer=pair.Value.GetComponentInChildren<SpriteRenderer>();
+                if(renderer==null || renderer.sprite==null) continue;
+                var plane=new Plane(renderer.transform.forward,renderer.transform.position);
+                if(!plane.Raycast(ray,out float distance) || distance>=nearest) continue;
+                Vector3 local=renderer.transform.InverseTransformPoint(ray.GetPoint(distance));
+                var sprite=renderer.sprite;
+                int x=Mathf.FloorToInt(local.x*sprite.pixelsPerUnit+sprite.pivot.x);
+                int y=Mathf.FloorToInt(local.y*sprite.pixelsPerUnit+sprite.pivot.y);
+                if(x<0 || y<0 || x>=sprite.rect.width || y>=sprite.rect.height) continue;
+                if(sprite.texture.GetPixel((int)sprite.rect.x+x,(int)sprite.rect.y+y).a<.1f) continue;
+                nearest=distance; closest=pair.Key;
+            }
+            return closest;
         }
         private void Update()
         {
@@ -234,17 +257,14 @@ namespace GothicTactics.Skirmish
                         if (d < nearest) { nearest = d; next = c.Id; }
                     }
                 }
-                // Let clicks on the visible character select its feet tile as well.
-                float closest = 25*UiScale;
-                foreach (var u in battle.Units.Where(u => u.Alive))
-                {
-                    Vector3 projected = WorldToScreen(pieces[u].position+view.transform.up*1.25f);
-                    float distanceToPointer = Vector2.Distance(pointer,new Vector2(projected.x,projected.y));
-                    if (projected.z > 0 && distanceToPointer < closest)
-                    { closest = distanceToPointer; next = u.CellId; }
-                }
+                // Only actual sprite pixels select a character; do not snap to a nearby unit.
+                var pointedCharacter=CharacterAtPointer(pointer);
+                if(pointedCharacter!=null) next=pointedCharacter.CellId;
             }
             if (hover != next) { hover = next; Paint(); }
+            if(hover<0 && armedCard!=null && !busy && !battle.EnemyTurn && !battle.Finished &&
+                !OverUI(pointer) && mouse.leftButton.wasPressedThisFrame)
+            { UseArmedCard(-1); return; }
             if (hover >= 0 && !busy && !battle.EnemyTurn && !battle.Finished && mouse.leftButton.wasPressedThisFrame)
             {
                 var target = battle.At(hover);

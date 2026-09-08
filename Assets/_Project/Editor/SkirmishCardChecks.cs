@@ -18,6 +18,16 @@ namespace GothicTactics.Editor
             u.Hand.Add(id);
         }
         private static int Cards(SkirmishBattle.Unit u) => u.Hand.Count+u.DrawPile.Count+u.Discard.Count;
+        private static string State(SkirmishBattle b) => b.Round+"/"+b.EnemyTurn+"/"+string.Join(";",b.Units.Select(u=>
+            u.CellId+","+u.AP+","+u.HP+","+u.Shield+","+u.Resource+","+u.InnateUsed+","+u.Guarding+"/"+
+            string.Join(",",u.Hand)+"/"+string.Join(",",u.DrawPile)+"/"+string.Join(",",u.Discard)));
+        private static void Reject(SkirmishBattle b,SkirmishBattle.Unit u,string card,int target,string reason)
+        {
+            InHand(u,card); string before=State(b);
+            Check(!b.TryPlayCard(u,HeroCards.Card(card),target,out string error),"reject "+reason);
+            Check(!string.IsNullOrEmpty(error),"rejection supplies feedback: "+reason);
+            Check(State(b)==before,"no AP, cards, resources, positions or health change: "+reason);
+        }
         [MenuItem("Gothic Tactics/Run Hero and Card Checks")]
         public static void Run()
         {
@@ -66,6 +76,23 @@ namespace GothicTactics.Editor
             Check(spirit.PlayCard(k,HeroCards.Innate("prayer"),k.CellId,true) && k.HP==k.MaxHP-1 && k.Resource==1,"actual healing builds Grace");
             var four=new SkirmishBattle(HeroCards.Heroes.Take(4).Select(h=>new HeroLoadout(h.Id)),1);
             Check(four.Units.Count==8 && four.Units.Select(u=>u.CellId).Distinct().Count()==8,"four-hero roster has legal occupancy");
+            b=Battle(); w=b.Units[0]; s=b.Units[1]; p=b.Units[2]; enemy=b.Units.First(u=>u.Enemy);
+            Reject(b,w,"crush",enemy.CellId,"legal Might card on distant enemy");
+            w.Resource=3;
+            Reject(b,w,"retaliate",enemy.CellId,"out-of-range signature retains its resource");
+            Reject(b,w,"lunge",77,"movement beyond card distance");
+            Reject(b,w,"lunge",s.CellId,"movement onto occupied hex");
+            Reject(b,w,"crush",w.CellId,"wrong team");
+            Reject(b,w,"crush",-1,"click outside board");
+            w.CellId=0; w.HP-=1;
+            Reject(b,p,"mend",w.CellId,"healing beyond range");
+            s.CellId=15; enemy.CellId=17;
+            Reject(b,s,"bolt",enemy.CellId,"within range but ruin blocks sight");
+            b=Battle(); w=b.Units[0]; enemy=b.Units.First(u=>u.Enemy);
+            Reject(b,w,"crush",enemy.CellId,"first click too far");
+            enemy.CellId=w.CellId+1; int beforeAP=w.AP,beforeHand=w.Hand.Count,beforeDiscard=w.Discard.Count;
+            Check(b.TryPlayCard(w,HeroCards.Card("crush"),enemy.CellId,out string successError),"same card plays on a subsequent valid target");
+            Check(successError==null && w.AP==beforeAP-3 && w.Hand.Count==beforeHand-1 && w.Discard.Count==beforeDiscard+1,"successful play spends exactly once");
             Debug.Log("All hero and card rules checks passed.");
         }
     }
