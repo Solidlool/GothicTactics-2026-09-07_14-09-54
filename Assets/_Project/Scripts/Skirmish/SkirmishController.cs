@@ -119,7 +119,7 @@ namespace GothicTactics.Skirmish
             materials.Clear(); pieces.Clear(); tiles.Clear(); torches.Clear(); actors.Clear(); hover = -1;
             world = new GameObject("Generated Skirmish").transform; world.SetParent(transform);
             battle = new SkirmishBattle(loadouts,Random.Range(0,int.MaxValue));
-            armedCard=null; armedInnate=false;
+            armedCard=null; armedEquipment=null; armedInnate=false;
             cardFeedbackUntil=0;
             var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Stone;
             var ruinMat = MakeMaterial(new Color(.52f,.48f,.42f)); ruinMat.mainTexture = art.Stone;
@@ -182,7 +182,7 @@ namespace GothicTactics.Skirmish
                 if(armedCard!=null)
                 {
                     color=c.Blocked ? stone*.75f : stone;
-                    if(battle.CardError(selected,armedCard,c.Id,armedInnate)==null)
+                    if(ArmedError(c.Id)==null)
                         color=armedCard.Target==CardTarget.Enemy ? new Color(.83f,.30f,.20f) : new Color(.70f,.77f,.48f);
                 }
                 if (selected != null && selected.Alive && selected.CellId == c.Id) color = new Color(.95f,.73f,.34f);
@@ -233,12 +233,12 @@ namespace GothicTactics.Skirmish
                 Vector3 right = view.transform.right; right.y=0;
                 Vector3 up = view.transform.up; up.y=0;
                 focus += (right.normalized*x+up.normalized*z)*Time.deltaTime*10; focus.x = Mathf.Clamp(focus.x,0,26); focus.z = Mathf.Clamp(focus.z,-4,18); PositionCamera();
-                if (keyboard.escapeKey.wasPressedThisFrame) { armedCard=null; armedInnate=false; Paint(); }
+                if (keyboard.escapeKey.wasPressedThisFrame) { armedCard=null; armedEquipment=null; armedInnate=false; Paint(); }
                 if (keyboard.spaceKey.wasPressedThisFrame) BeginEnemyTurn();
                 if (!busy && !battle.EnemyTurn && !battle.Finished && keyboard.tabKey.wasPressedThisFrame)
                 {
                     var squad = battle.Units.Where(u => u.Alive && !u.Enemy).ToList();
-                    selected = squad[(squad.IndexOf(selected)+1)%squad.Count]; armedCard=null; armedInnate=false; Refresh();
+                    selected = squad[(squad.IndexOf(selected)+1)%squad.Count]; armedCard=null; armedEquipment=null; armedInnate=false; Refresh();
                 }
             }
             var mouse = Mouse.current; if (mouse == null) return;
@@ -269,11 +269,11 @@ namespace GothicTactics.Skirmish
             {
                 var target = battle.At(hover);
                 if(armedCard!=null) { UseArmedCard(hover); return; }
-                if (target != null && !target.Enemy) { selected = target; armedCard=null; armedInnate=false; Refresh(); }
+                if (target != null && !target.Enemy) { selected = target; armedCard=null; armedEquipment=null; armedInnate=false; Refresh(); }
                 else if (target != null && selected != null)
                 {
-                    if (battle.Attack(selected,target)) { StartCoroutine(Strike(selected,target)); Refresh(); }
-                    else hint = "Attack unavailable: needs 2 AP, range and an unobstructed shot.";
+                    if (battle.Attack(selected,target)) { ShowCardFeedback(battle.Log[0],false); StartCoroutine(Strike(selected,target)); Refresh(); }
+                    else { hint=battle.EquipmentError(selected,HeroEquipment.Weapon(selected.Inventory).Id,target.CellId); ShowCardFeedback(hint+" AP kept.",true); }
                 }
                 else if (selected != null && costs.ContainsKey(hover))
                 {
@@ -306,7 +306,7 @@ namespace GothicTactics.Skirmish
         private void BeginEnemyTurn()
         {
             if (preparing || busy || battle == null || battle.EnemyTurn || battle.Finished) return;
-            armedCard=null; armedInnate=false;
+            armedCard=null; armedEquipment=null; armedInnate=false;
             StartCoroutine(EnemyTurn());
         }
         private IEnumerator EnemyTurn()
@@ -378,9 +378,9 @@ namespace GothicTactics.Skirmish
             {
                 GUI.enabled = u.Alive && !busy && !battle.EnemyTurn && !battle.Finished;
                 GUI.backgroundColor = u == selected ? new Color(.85f,.66f,.37f) : Color.white;
-                if (GUI.Button(new Rect(14,y,230,54),u.Name + "  /  " + u.Role + "\n" + (u.Alive ? u.HP+"/"+u.MaxHP+" HP  "+u.Shield+" SH  "+u.AP+"/6 AP" : "FALLEN"),button))
-                { selected = u; armedCard=null; armedInnate=false; Refresh(); }
-                y += 60;
+                if (GUI.Button(new Rect(14,y,230,46),u.Name + "  /  " + u.Role + "\n" + (u.Alive ? u.HP+"/"+u.MaxHP+" HP  "+u.Shield+" SH  "+u.AP+"/6 AP"+(u.BleedTurns>0 ? " BLEED "+u.BleedTurns : "") : "FALLEN"),button))
+                { selected = u; armedCard=null; armedEquipment=null; armedInnate=false; Refresh(); }
+                y += 52;
             }
             GUI.backgroundColor = Color.white; GUI.enabled = true;
             if(selected?.Hero!=null)
@@ -391,10 +391,7 @@ namespace GothicTactics.Skirmish
                 var innate=HeroCards.Innate(selected.Hero.Innate);
                 if(GUI.Button(new Rect(14,y,230,34),innate.Name+" / 1 AP",button)) Arm(innate,true);
                 GUI.enabled=true; y+=38;
-                GUI.Label(new Rect(18,y,224,40),innate.Text,small); y+=43;
-                GUI.enabled=!busy && !battle.EnemyTurn && battle.CanAct(selected) && selected.AP>0;
-                if(GUI.Button(new Rect(14,y,230,30),"Guard / remaining AP",button)) { battle.Guard(selected); armedCard=null; Refresh(); }
-                GUI.enabled=true; y+=36;
+                y=DrawEquipmentActions(y);
             }
             foreach(string line in battle.Log.Take(Mathf.Max(0,(int)((height-240-y)/38))))
             { GUI.Label(new Rect(18,y,224,36),line,small); y+=38; }
@@ -414,7 +411,7 @@ namespace GothicTactics.Skirmish
                 Panel(new Rect(width/2-230,height/2-120,460,240));
                 GUI.Label(new Rect(width/2-205,height/2-96,410,38),battle.Victory ? "THE SANCTUARY IS YOURS" : "THE VIGIL HAS ENDED",title);
                 GUI.Label(new Rect(width/2-205,height/2-43,400,70),battle.Victory ? "The bell will sound again.\nSurvivors: "+battle.Units.Count(u => !u.Enemy && u.Alive)+" / "+loadouts.Count+"   •   Rounds: "+battle.Round : "Your hunters have fallen. Try holding the gaps, guarding, and focusing your attacks.",body);
-                if (GUI.Button(new Rect(width/2-205,height/2+50,410,45),"RETURN TO HEROES & DECKS",button)) { preparing=true; armedCard=null; }
+                if (GUI.Button(new Rect(width/2-205,height/2+50,410,45),"RETURN TO HEROES & DECKS",button)) { preparing=true; armedCard=null; armedEquipment=null; }
             }
             GUI.matrix = Matrix4x4.identity;
         }

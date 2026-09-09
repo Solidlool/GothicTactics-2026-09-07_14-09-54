@@ -62,7 +62,7 @@ namespace GothicTactics.Skirmish
             for(int i=0;i<HeroCards.Heroes.Length;i++)
             {
                 var h=HeroCards.Heroes[i];
-                GUI.enabled=!loadouts.Where((l,n)=>n!=editing).Any(l=>l.HeroId==h.Id);
+                GUI.enabled=loadouts[editing].HeroId!=h.Id && !loadouts.Where((l,n)=>n!=editing).Any(l=>l.HeroId==h.Id);
                 GUI.backgroundColor=CardColour(h.Affinities);
                 if(GUI.Button(new Rect(24,442+i*42,228,36),h.Role,button))
                 { loadouts[editing]=new HeroLoadout(h.Id); libraryScroll=deckScroll=Vector2.zero; }
@@ -70,44 +70,52 @@ namespace GothicTactics.Skirmish
             GUI.enabled=true; GUI.backgroundColor=Color.white;
             var loadout=loadouts[editing]; var hero=HeroCards.Hero(loadout.HeroId);
             GUI.Label(new Rect(280,98,width-310,32),hero.Name+" / "+hero.Role+" / "+hero.Affinities,title);
-            GUI.Label(new Rect(280,137,width-310,44),hero.HP+" HP.  "+hero.Passive,body);
+            GUI.Label(new Rect(280,137,width-310,44),(hero.HP+loadout.Inventory.Health)+" HP.  "+hero.Passive,body);
             GUI.Label(new Rect(280,182,width-310,38),"Innate: "+HeroCards.Innate(hero.Innate).Name+" — "+HeroCards.Innate(hero.Innate).Text,small);
-            GUI.Label(new Rect(280,224,300,25),"DECK / "+loadout.Deck.Count+" OF 10",body);
-            GUI.Label(new Rect(615,224,width-639,25),"AVAILABLE CARDS / click to add",body);
-            float listHeight=height-355;
-            deckScroll=GUI.BeginScrollView(new Rect(280,258,310,listHeight),deckScroll,new Rect(0,0,287,loadout.Deck.Count*60));
+            if(GUI.Button(new Rect(280,224,150,33),"DECK / "+loadout.Deck.Count+" of 10",button)) equipmentTab=false;
+            if(GUI.Button(new Rect(440,224,180,33),"EQUIPMENT & BAG",button)) equipmentTab=true;
+            if(equipmentTab) DrawInventory(width,height,loadout);
+            else
+            {
+            GUI.Label(new Rect(280,267,300,25),"DECK / "+loadout.Deck.Count+" OF 10",body);
+            GUI.Label(new Rect(615,267,width-639,25),"AVAILABLE CARDS / click to add",body);
+            float listHeight=height-395;
+            deckScroll=GUI.BeginScrollView(new Rect(280,300,310,listHeight),deckScroll,new Rect(0,0,287,loadout.Deck.Count*60));
             int remove=-1;
             for(int i=0;i<loadout.Deck.Count;i++)
             {
                 var card=HeroCards.Card(loadout.Deck[i]);
                 GUI.backgroundColor=CardColour(card.Affinity); GUI.enabled=card.HeroId==null;
-                if(GUI.Button(new Rect(0,i*60,280,54),card.Name+" / "+card.Cost+" AP\n"+(card.HeroId!=null ? "Hero signature (required)" : "Click to remove"),button)) remove=i;
+                if(GUI.Button(new Rect(0,i*60,280,54),card.Name+" / "+card.Cost+" AP\n"+(!loadout.Inventory.Meets(card.Requires) ? "MISSING: "+HeroEquipment.Requirement(card.Requires) : card.HeroId!=null ? "Hero signature (required)" : "Click to remove"),button)) remove=i;
             }
             GUI.enabled=true; GUI.backgroundColor=Color.white; GUI.EndScrollView();
             if(remove>=0) loadout.Deck.RemoveAt(remove);
             var available=HeroCards.Cards.Where(c=>HeroCards.Allowed(hero,c) && c.HeroId==null).ToList();
             float libraryWidth=width-639;
-            libraryScroll=GUI.BeginScrollView(new Rect(615,258,libraryWidth,listHeight),libraryScroll,new Rect(0,0,libraryWidth-22,available.Count*88));
+            libraryScroll=GUI.BeginScrollView(new Rect(615,300,libraryWidth,listHeight),libraryScroll,new Rect(0,0,libraryWidth-22,available.Count*110));
             for(int i=0;i<available.Count;i++)
             {
                 var card=available[i]; int copies=loadout.Deck.Count(id=>id==card.Id);
                 GUI.enabled=loadout.Deck.Count<HeroCards.DeckSize && copies<2;
                 GUI.backgroundColor=CardColour(card.Affinity);
-                if(GUI.Button(new Rect(0,i*88,libraryWidth-27,35),card.Name+" / "+card.Cost+" AP / "+copies+" of 2",button)) loadout.Deck.Add(card.Id);
+                if(GUI.Button(new Rect(0,i*110,libraryWidth-27,35),card.Name+" / "+card.Cost+" AP / "+copies+" of 2",button)) loadout.Deck.Add(card.Id);
                 GUI.enabled=true; GUI.backgroundColor=Color.white;
-                GUI.Label(new Rect(7,i*88+37,libraryWidth-40,47),card.Affinity+" — "+card.Text,small);
+                GUI.Label(new Rect(7,i*110+37,libraryWidth-40,68),card.Affinity+" — "+card.Text+"\nRequires: "+HeroEquipment.Requirement(card.Requires)+(!loadout.Inventory.Meets(card.Requires) ? " (MISSING)" : ""),small);
             }
             GUI.EndScrollView();
-            string error=loadouts.Select(HeroCards.Validate).FirstOrDefault(e=>e!=null);
-            GUI.Label(new Rect(280,height-88,width-570,60),error ?? "Decks ready. Unplayed cards discard at turn end. Draw 5 each turn; reshuffle when empty. Remove a card before adding a replacement.",small);
-            if(GUI.Button(new Rect(24,height-69,228,40),"Restore starter deck",button)) loadouts[editing]=new HeroLoadout(hero.Id);
+            }
+            string error=loadouts.Select(l=> { string issue=HeroCards.Validate(l); return issue==null ? null : HeroCards.Hero(l.HeroId).Name+": "+issue; }).FirstOrDefault(e=>e!=null);
+            GUI.Label(new Rect(280,height-88,width-570,60),error ?? "Build ready. Equipment actions are repeatable for AP. Cards still need matching hero affinities and equipped items.",small);
+            if(GUI.Button(new Rect(24,height-69,228,40),"Restore starter deck",button))
+            { loadout.Deck.Clear(); loadout.Deck.AddRange(hero.Starter); }
             GUI.enabled=error==null;
             if(GUI.Button(new Rect(width-265,height-69,240,43),"ENTER THE SANCTUARY",button)) { preparing=false; Restart(); }
             GUI.enabled=true;
         }
         private void Arm(CardDefinition card,bool innate=false)
         {
-            if(armedCard==card && armedInnate==innate) { armedCard=null; armedInnate=false; Paint(); return; }
+            armedEquipment=null;
+            if(armedCard==card && armedInnate==innate) { armedCard=null; armedEquipment=null; armedInnate=false; Paint(); return; }
             armedCard=card; armedInnate=innate;
             hint=card.Name+": "+card.Text+" Click a target; Esc cancels.";
             cardFeedbackUntil=0;
@@ -125,14 +133,17 @@ namespace GothicTactics.Skirmish
             var card=armedCard; var actor=selected;
             var path=card.Effect==CardEffect.Move ? battle.Path(actor,targetId) : null;
             var target=battle.At(targetId);
-            if(!battle.TryPlayCard(actor,card,targetId,out string error,armedInnate))
+            string error;
+            bool isEquipment=armedEquipment!=null;
+            bool played=isEquipment ? battle.TryUseEquipment(actor,armedEquipment.Id,targetId,out error) : battle.TryPlayCard(actor,card,targetId,out error,armedInnate);
+            if(!played)
             {
                 hint=error;
-                ShowCardFeedback(error+" Card and AP kept.",true);
+                ShowCardFeedback(error+(isEquipment ? " AP kept." : " Card and AP kept."),true);
                 // Keep the selected card armed so the player can choose another target.
                 Paint(); return;
             }
-            armedCard=null; armedInnate=false;
+            if(!isEquipment) { armedCard=null; armedEquipment=null; armedInnate=false; }
             hint=battle.Log[0];
             ShowCardFeedback(card.Name+" played / "+card.Cost+" AP. "+hint,false);
             if(card.Effect==CardEffect.Move) StartCoroutine(Walk(actor,path));
@@ -145,13 +156,13 @@ namespace GothicTactics.Skirmish
             string context=armedCard!=null ? armedCard.Name+" / "+armedCard.Text+" Click target or press Esc." : hint;
             if(armedCard!=null && hover>=0)
             {
-                string error=battle.CardError(selected,armedCard,hover,armedInnate);
+                string error=ArmedError(hover);
                 context=error ?? CardTargetPreview(armedCard,hover);
             }
             else if(hover>=0 && selected!=null)
             {
                 var target=battle.At(hover);
-                if(target!=null) context=target.Name+" / "+target.HP+" HP / "+target.Shield+" shield"+(battle.CanAttack(selected,target) ? " / Basic attack: "+battle.AttackDamage(selected,target)+" damage, 2 AP" : "");
+                if(target!=null) context=target.Name+" / "+target.HP+" HP / "+target.Shield+" shield / Bleed "+target.BleedTurns+(battle.CanAttack(selected,target) ? " / "+HeroEquipment.Weapon(selected.Inventory).Name+": "+battle.AttackDamage(selected,target)+" damage, "+battle.BasicAttackCost(selected)+" AP" : "");
                 else if(costs.TryGetValue(hover,out int cost)) context="Move: "+cost+" AP / "+(selected.AP-cost)+" remaining";
             }
             GUI.Label(new Rect(20,height-216,width-310,30),context,small);
@@ -179,7 +190,8 @@ namespace GothicTactics.Skirmish
                     GUI.Label(new Rect(x+8,5,cardWidth-16,39),card.Name+" / "+card.Cost+" AP",body);
                     string reach=card.Target==CardTarget.Self ? "Self" : "Range "+card.Range;
                     GUI.Label(new Rect(x+8,43,cardWidth-16,22),(card.HeroId!=null ? "SIGNATURE" : card.Affinity.ToString())+" / "+reach,small);
-                    GUI.Label(new Rect(x+8,65,cardWidth-16,53),card.Text,small);
+                    GUI.Label(new Rect(x+8,64,cardWidth-16,44),card.Text,new GUIStyle(small) { fontSize=11 });
+                    if(card.Requires!=GearTag.None) GUI.Label(new Rect(x+8,106,cardWidth-16,16),"Needs "+HeroEquipment.Requirement(card.Requires),new GUIStyle(small) { fontSize=10 });
                 }
                 GUI.EndScrollView();
             }
@@ -192,13 +204,14 @@ namespace GothicTactics.Skirmish
         private string CardTargetPreview(CardDefinition card,int targetId)
         {
             var target=battle.At(targetId);
-            int power=card.Power+(card.SpendResource ? selected.Resource : 0);
+            int power=battle.ActionPower(selected,card,armedEquipment);
             string effect=card.Text;
             if(card.Effect==CardEffect.Damage)
             {
                 int hit=Mathf.Max(1,power-(target.Guarding ? 2 : 0));
                 int absorbed=Mathf.Min(hit,target.Shield);
                 effect=Mathf.Min(target.HP,hit-absorbed)+" HP damage / "+absorbed+" absorbed by shield";
+                if(armedEquipment?.Bleed>0 && hit>absorbed) effect+=" / Bleed "+armedEquipment.Bleed;
             }
             else if(card.Effect==CardEffect.Heal) effect="Restore "+Mathf.Min(power,target.MaxHP-target.HP)+" HP";
             else if(card.Effect==CardEffect.Shield) effect="Grant "+power+" shield";

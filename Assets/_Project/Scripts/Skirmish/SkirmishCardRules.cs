@@ -24,6 +24,8 @@ namespace GothicTactics.Skirmish
             {
                 var h=HeroCards.Hero(party[i].HeroId);
                 var unit=new Unit { Name=h.Name,Role=h.Role,Hero=h,CellId=(i+2)*Width+1,HP=h.HP,MaxHP=h.HP,AP=MaxAP,Damage=h.Damage,Range=h.Range };
+                unit.Inventory=party[i].Inventory.Clone();
+                unit.MaxHP+=unit.Inventory.Health; unit.HP=unit.MaxHP;
                 unit.DrawPile.AddRange(party[i].Deck); Shuffle(unit.DrawPile); Draw(unit,HeroCards.HandSize); Units.Insert(i,unit);
             }
             Log.Clear(); Note("The party enters the sanctuary. Defeat every revenant.");
@@ -61,7 +63,12 @@ namespace GothicTactics.Skirmish
             if(innate)
             { if(card.Id!=u.Hero.Innate || u.InnateUsed) return "Innate already used this turn."; }
             else if(!u.Hand.Contains(card.Id)) return "Card is not in hand.";
+            if(card.Requires!=GearTag.None && (u.Inventory==null || !u.Inventory.Meets(card.Requires))) return "Requires "+HeroEquipment.Requirement(card.Requires)+" equipped.";
             if(u.AP<card.Cost) return "Not enough AP.";
+            return TargetError(u,card,targetId,innate);
+        }
+        private string TargetError(Unit u,CardDefinition card,int targetId,bool innate=false)
+        {
             if(targetId<0 || targetId>=Cells.Length) return "Choose a target.";
             var target=At(targetId);
             if(card.Target==CardTarget.Self && target!=u) return "Choose yourself.";
@@ -93,7 +100,7 @@ namespace GothicTactics.Skirmish
             error=CardError(u,card,targetId,innate);
             if(error!=null) { Note(error); return false; }
             var target=At(targetId);
-            int power=card.Power+(card.SpendResource ? u.Resource : 0);
+            int power=ActionPower(u,card);
             u.AP-=card.Cost;
             if(innate) u.InnateUsed=true; else u.Hand.Remove(card.Id);
             if(card.SpendResource) u.Resource=0;
