@@ -16,8 +16,9 @@ namespace GothicTactics.Skirmish
         public readonly CardEffect Effect;
         public readonly CardTarget Target;
         public readonly bool SpendResource;
-        public CardDefinition(string id,string name,Affinity affinity,int cost,int range,int power,CardEffect effect,CardTarget target,string text,string heroId=null,bool spend=false)
-        { Id=id; Name=name; Affinity=affinity; Cost=cost; Range=range; Power=power; Effect=effect; Target=target; Text=text; HeroId=heroId; SpendResource=spend; }
+        public readonly GearTag Requires;
+        public CardDefinition(string id,string name,Affinity affinity,int cost,int range,int power,CardEffect effect,CardTarget target,string text,string heroId=null,bool spend=false,GearTag requires=GearTag.None)
+        { Id=id; Name=name; Affinity=affinity; Cost=cost; Range=range; Power=power; Effect=effect; Target=target; Text=text; HeroId=heroId; SpendResource=spend; Requires=requires; }
     }
     public sealed class HeroDefinition
     {
@@ -32,7 +33,8 @@ namespace GothicTactics.Skirmish
     {
         public string HeroId;
         public readonly List<string> Deck = new List<string>();
-        public HeroLoadout(string heroId) { HeroId=heroId; Deck.AddRange(HeroCards.Hero(heroId).Starter); }
+        public HeroInventory Inventory;
+        public HeroLoadout(string heroId) { HeroId=heroId; Inventory=HeroInventory.Starter(heroId); Deck.AddRange(HeroCards.Hero(heroId).Starter); }
     }
     public static class HeroCards
     {
@@ -42,22 +44,24 @@ namespace GothicTactics.Skirmish
             new CardDefinition("prepare","Prepare",Affinity.Neutral,1,0,2,CardEffect.Draw,CardTarget.Self,"Draw 2 cards (hand limit 8)."),
             new CardDefinition("bandage","Field Dressing",Affinity.Neutral,1,0,3,CardEffect.Heal,CardTarget.Self,"Restore 3 HP to yourself."),
             new CardDefinition("brace","Brace",Affinity.Neutral,1,0,3,CardEffect.Shield,CardTarget.Self,"Gain 3 shield until your next turn."),
-            new CardDefinition("crush","Crushing Blow",Affinity.Might,3,1,6,CardEffect.Damage,CardTarget.Enemy,"Deal 6 damage. Range 1."),
-            new CardDefinition("bulwark","Bulwark",Affinity.Might,2,1,6,CardEffect.Shield,CardTarget.Ally,"Give yourself or an ally 6 shield. Range 1."),
+            new CardDefinition("crush","Crushing Blow",Affinity.Might,3,1,6,CardEffect.Damage,CardTarget.Enemy,"Deal 6 damage. Range 1.",requires:GearTag.Melee),
+            new CardDefinition("bulwark","Bulwark",Affinity.Might,2,1,6,CardEffect.Shield,CardTarget.Ally,"Give yourself or an ally 6 shield. Range 1.",requires:GearTag.Shield),
             new CardDefinition("lunge","Lunge",Affinity.Might,1,2,2,CardEffect.Move,CardTarget.Hex,"Move up to 2 hexes along a clear path."),
-            new CardDefinition("pierce","Precise Shot",Affinity.Agility,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 damage. Range 4."),
+            new CardDefinition("pierce","Precise Shot",Affinity.Agility,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 damage. Range 4.",requires:GearTag.Bow),
             new CardDefinition("dash","Shadow Step",Affinity.Agility,1,3,3,CardEffect.Move,CardTarget.Hex,"Move up to 3 hexes along a clear path."),
             new CardDefinition("evade","Evasive Stance",Affinity.Agility,1,0,4,CardEffect.Shield,CardTarget.Self,"Gain 4 shield until your next turn."),
-            new CardDefinition("bolt","Ember Bolt",Affinity.Intellect,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 damage. Range 4."),
-            new CardDefinition("study","Arcane Study",Affinity.Intellect,1,0,3,CardEffect.Draw,CardTarget.Self,"Draw 3 cards (hand limit 8)."),
-            new CardDefinition("barrier","Arcane Barrier",Affinity.Intellect,2,3,5,CardEffect.Shield,CardTarget.Ally,"Give yourself or an ally 5 shield. Range 3."),
+            new CardDefinition("bolt","Ember Bolt",Affinity.Intellect,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 damage. Range 4.",requires:GearTag.Staff|GearTag.Tome),
+            new CardDefinition("study","Arcane Study",Affinity.Intellect,1,0,3,CardEffect.Draw,CardTarget.Self,"Draw 3 cards (hand limit 8).",requires:GearTag.Staff|GearTag.Tome),
+            new CardDefinition("barrier","Arcane Barrier",Affinity.Intellect,2,3,5,CardEffect.Shield,CardTarget.Ally,"Give yourself or an ally 5 shield. Range 3.",requires:GearTag.Staff|GearTag.Tome),
             new CardDefinition("mend","Mending Light",Affinity.Spirit,2,3,5,CardEffect.Heal,CardTarget.Ally,"Restore 5 HP to yourself or an ally. Range 3."),
             new CardDefinition("ward","Ancestral Ward",Affinity.Spirit,1,3,3,CardEffect.Shield,CardTarget.Ally,"Give yourself or an ally 3 shield. Range 3."),
             new CardDefinition("smite","Spirit Lance",Affinity.Spirit,2,3,3,CardEffect.Damage,CardTarget.Enemy,"Deal 3 damage. Range 3."),
             new CardDefinition("judgement","Divine Judgement",Affinity.Might|Affinity.Spirit,3,2,6,CardEffect.Damage,CardTarget.Enemy,"Requires Might AND Spirit. Deal 6 damage. Range 2."),
+            new CardDefinition("shieldwall","Shield Wall",Affinity.Might,3,1,9,CardEffect.Shield,CardTarget.Ally,"Grant 9 shield. Range 1. Requires shield.",requires:GearTag.Shield),
+            new CardDefinition("shieldbash","Shield Bash",Affinity.Might,2,1,5,CardEffect.Damage,CardTarget.Enemy,"Deal 5 damage. Range 1. Requires shield.",requires:GearTag.Shield),
             new CardDefinition("retaliate","Iron Reckoning",Affinity.Might,2,1,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 + Resolve damage; spend all Resolve.","warden",true),
             new CardDefinition("ambush","Grave Ambush",Affinity.Agility,2,3,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 + Momentum damage; spend all Momentum.","graveblade",true),
-            new CardDefinition("release","Cinder Release",Affinity.Intellect,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 + Heat damage; spend all Heat.","sorcerer",true),
+            new CardDefinition("release","Cinder Release",Affinity.Intellect,2,4,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 + Heat damage; spend all Heat.","sorcerer",true,requires:GearTag.Staff|GearTag.Tome),
             new CardDefinition("communion","Ancestral Communion",Affinity.Spirit,1,3,4,CardEffect.Shield,CardTarget.Ally,"Give 4 + Grace shield; spend all Grace.","keeper",true),
             new CardDefinition("verdict","Oathkeeper's Verdict",Affinity.Might|Affinity.Spirit,2,2,4,CardEffect.Damage,CardTarget.Enemy,"Deal 4 + Conviction damage; spend all Conviction.","paladin",true),
         };
@@ -90,6 +94,11 @@ namespace GothicTactics.Skirmish
             if(loadout.Deck.Any(id=>!Allowed(hero,Card(id)))) return "Deck contains an unavailable card.";
             if(loadout.Deck.Count(id=>id==hero.Signature)!=1) return "Include exactly one hero signature card.";
             if(loadout.Deck.GroupBy(id=>id).Any(g=>g.Count()>(Card(g.Key).HeroId==null ? 2 : 1))) return "Maximum 2 copies of shared cards and 1 signature.";
+            if(loadout.Inventory==null) return "Hero has no inventory.";
+            string gearError=loadout.Inventory.Validate();
+            if(gearError!=null) return gearError;
+            var missing=loadout.Deck.Select(Card).FirstOrDefault(c=>!loadout.Inventory.Meets(c.Requires));
+            if(missing!=null) return missing.Name+" requires "+HeroEquipment.Requirement(missing.Requires)+" equipped.";
             return null;
         }
     }

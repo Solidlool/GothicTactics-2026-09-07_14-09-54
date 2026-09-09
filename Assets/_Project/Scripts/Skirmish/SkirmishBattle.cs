@@ -21,7 +21,8 @@ namespace GothicTactics.Skirmish
             public bool Enemy, Guarding;
             public int CellId, HP, MaxHP, AP, Damage, Range, Tonics = 1;
             public HeroDefinition Hero;
-            public int Shield, Resource;
+            public int Shield, Resource, BleedTurns;
+            public HeroInventory Inventory;
             public bool InnateUsed;
             public readonly List<string> Hand = new List<string>();
             public readonly List<string> DrawPile = new List<string>();
@@ -116,8 +117,8 @@ namespace GothicTactics.Skirmish
         }
         public bool CanAct(Unit u) => !Finished && u != null && u.Alive && u.Enemy == EnemyTurn;
         public bool CanAttack(Unit u, Unit target) => CanAct(u) && target != null && target.Alive &&
-            target.Enemy != u.Enemy && u.AP >= AttackCost && Distance(u.CellId, target.CellId) <= u.Range && HasSight(u.CellId, target.CellId);
-        public int AttackDamage(Unit u, Unit target) => Math.Max(0, Math.Max(1, u.Damage - (target.Guarding ? 2 : 0)) - target.Shield);
+            target.Enemy != u.Enemy && u.AP >= BasicAttackCost(u) && Distance(u.CellId, target.CellId) <= BasicAttackRange(u) && HasSight(u.CellId, target.CellId);
+        public int AttackDamage(Unit u, Unit target) => Math.Max(0, Math.Max(1, BasicAttackPower(u) - (target.Guarding ? 2 : 0)) - target.Shield);
         public bool Move(Unit u, int destination)
         {
             if (!CanAct(u)) return false;
@@ -129,6 +130,7 @@ namespace GothicTactics.Skirmish
         public bool Attack(Unit u, Unit target)
         {
             if (!CanAttack(u, target)) return false;
+            if(u.Hero!=null) return TryUseEquipment(u,HeroEquipment.Weapon(u.Inventory).Id,target.CellId,out _);
             u.AP -= AttackCost; u.Guarding = false;
             int damage = DealDamage(u,target,u.Damage);
             Note(u.Name + " hits " + target.Name + " for " + damage + (target.Alive ? "." : ". Slain."));
@@ -153,6 +155,11 @@ namespace GothicTactics.Skirmish
                 { hero.Discard.AddRange(hero.Hand); hero.Hand.Clear(); }
             EnemyTurn = !EnemyTurn;
             if (!EnemyTurn) Round++;
+            foreach(var bleeding in Units.Where(u=>u.Alive && u.Enemy==EnemyTurn && u.BleedTurns>0))
+            {
+                bleeding.BleedTurns--; bleeding.HP=Math.Max(0,bleeding.HP-1);
+                Note(bleeding.Name+" loses 1 HP to Bleed"+(bleeding.Alive ? "." : ". Slain."));
+            }
             foreach (var u in Units.Where(u => u.Alive && u.Enemy == EnemyTurn))
             {
                 u.AP = MaxAP; u.Guarding = false; u.Shield=0; u.InnateUsed=false;
