@@ -9,11 +9,12 @@ namespace GothicTactics.Skirmish
         private readonly List<Object> owned = new List<Object>();
         private readonly Dictionary<string,Sprite> characters = new Dictionary<string,Sprite>();
         private Sprite flame;
-        public readonly Texture2D Stone, Panel, Button;
+        public readonly Texture2D Stone, Ground, Panel, Button;
         private static Color32 C(string hex) { ColorUtility.TryParseHtmlString("#"+hex,out Color c); return c; }
         public AshenPixelArt()
         {
-            Stone = Masonry(64,64,71,false);
+            Stone = Masonry(128,128,71,false);
+            Ground = Earth();
             Panel = Masonry(64,64,98,true);
             Button = Masonry(32,32,52,true);
         }
@@ -38,6 +39,22 @@ namespace GothicTactics.Skirmish
             }
             return Texture(w,h,pixels,dark ? "Ashen iron grain" : "Cracked crypt flagstones");
         }
+        private Texture2D Earth()
+        {
+            const int size=256;
+            var pixels=new Color32[size*size]; var random=new System.Random(718);
+            for(int y=0;y<size;y++) for(int x=0;x<size;x++)
+            {
+                // Periodic broad variation keeps the repeating dirt texture seamless.
+                float patch=Mathf.Sin(x*Mathf.PI*2/size)*Mathf.Cos(y*Mathf.PI*4/size);
+                int grain=random.Next(-15,16);
+                float v=106+patch*16+grain;
+                bool pebble=random.Next(90)==0;
+                if(pebble) v+=35;
+                pixels[y*size+x]=new Color32((byte)v,(byte)(v*.91f),(byte)(v*.86f),255);
+            }
+            return Texture(size,size,pixels,"Gravel, ash and worn earth");
+        }
         private sealed class Canvas
         {
             public readonly int W,H; public readonly Color32[] Pixels;
@@ -61,9 +78,26 @@ namespace GothicTactics.Skirmish
         }
         private Sprite Finish(Canvas c,string name,float ppu)
         {
-            var texture = Texture(c.W,c.H,c.Pixels,name);
+            const int detail=3;
+            int width=c.W*detail,height=c.H*detail;
+            var pixels=new Color32[width*height];
+            for(int y=0;y<height;y++) for(int x=0;x<width;x++)
+            {
+                int sx=x/detail,sy=y/detail;
+                Color32 source=c.Pixels[sy*c.W+sx];
+                if(source.a==0) continue;
+                bool left=sx==0 || c.Pixels[sy*c.W+sx-1].a==0;
+                bool right=sx==c.W-1 || c.Pixels[sy*c.W+sx+1].a==0;
+                float relief=1f + ((x*17+y*31)%11-5)*.008f;
+                if(left) relief+=.12f;
+                if(right) relief-=.22f;
+                if(y%detail==detail-1 && sy<c.H-1 && c.Pixels[(sy+1)*c.W+sx].a==0) relief+=.16f;
+                pixels[y*width+x]=new Color32((byte)Mathf.Clamp(source.r*relief,0,255),
+                    (byte)Mathf.Clamp(source.g*relief,0,255),(byte)Mathf.Clamp(source.b*relief,0,255),source.a);
+            }
+            var texture = Texture(width,height,pixels,name);
             texture.wrapMode = TextureWrapMode.Clamp;
-            var sprite = Sprite.Create(texture,new Rect(0,0,c.W,c.H),new Vector2(.5f,0),ppu,0,SpriteMeshType.FullRect);
+            var sprite = Sprite.Create(texture,new Rect(0,0,width,height),new Vector2(.5f,0),ppu*detail,0,SpriteMeshType.FullRect);
             sprite.name=name; owned.Add(sprite); return sprite;
         }
         public Sprite Character(string role)
@@ -131,7 +165,23 @@ namespace GothicTactics.Skirmish
                     p.Box(17,19,5,3,"c0b599");p.Box(19,20,1,2,"30241e");
                 }
             }
-            var result = Finish(p,role+" pixel character",23); characters[role]=result; return result;
+            // Small highlights describe seams, mail, buckles and cloth folds.
+            if(warden || knight)
+            {
+                for(int y=24;y<33;y+=2) for(int x=16;x<22;x+=2)
+                    p.Dot(x+(y%4==0 ? 0 : 1),y,C("858780"));
+                p.Box(12,24,3,1,"c0bdab"); p.Box(20,22,3,1,"aaa695");
+                p.Box(13,31,9,1,"42464b"); p.Box(20,39,2,8,"777971");
+                p.Box(14,39,1,8,"626b70");
+            }
+            else
+            {
+                p.Shape("30282f",10,32,12,35,10,46,8,46);
+                p.Shape("a18a70",22,37,23,39,25,46,23,45);
+                p.Box(13,25,1,7,"b1a080");
+                p.Box(20,35,3,4,"6a4d35"); p.Box(21,35,1,1,"c3a16a");
+            }
+            var result = Finish(p,role+" detailed pixel character",23); characters[role]=result; return result;
         }
         public Sprite Flame()
         {

@@ -116,3 +116,9 @@ The first editor command creates the shared prototype material and scene. Commit
 ### Invalid-target regression checks
 
 `Run Hero and Card Checks` now includes legal cards aimed beyond range, a signature with stored resources, blocked line of sight within range, an occupied movement destination, an overlong movement path, wrong-team targets, healing beyond range and clicks outside the board. Each rejection compares hand/draw/discard order, AP, HP, shield, resources, innate state, guard, positions and turn state before and after. It also verifies that the same card succeeds exactly once on the next valid target. These checks require Unity to execute.
+
+## Reference-led visual pass (4 October 2026)
+
+The sanctuary now uses finer pixel rendering (up to 540 vertical scene pixels before integer scaling), continuous mottled earth across hexes, a surrounding ground plane, ruined churchyard walls, bare trees and rubble around existing blocked tombs. Tombs have mouldings and inscriptions. Character sprites retain their original silhouettes with additional material shading, mail and cloth detail. Movement-range tint is subtler; selected tiles, paths and attack targets retain strong feedback. No combat rules changed.
+
+Validation: C# tree-sitter syntax checks and git diff whitespace checks. Unity compilation and visual/play testing are still required; this workspace has no Unity editor. Character silhouettes remain procedural placeholders rather than production sprite art. Run Gothic Tactics > Play Complete Skirmish to inspect the pass.

@@ -17,7 +17,7 @@ namespace GothicTactics.Skirmish
         private readonly Dictionary<SkirmishBattle.Unit, Transform> pieces = new Dictionary<SkirmishBattle.Unit, Transform>();
         private readonly List<Material> materials = new List<Material>();
         private readonly Dictionary<int, int> costs = new Dictionary<int, int>();
-        private readonly Color stone = new Color(.62f,.58f,.50f), teal = new Color(.53f,.57f,.38f), red = new Color(.65f,.22f,.16f);
+        private readonly Color stone = new Color(.62f,.61f,.65f), teal = new Color(.53f,.57f,.38f), red = new Color(.65f,.22f,.16f);
         private AshenPixelArt art;
         private RenderTexture pixelScene;
         private Rect sceneRect; // Screen pixels, bottom-left origin.
@@ -60,7 +60,7 @@ namespace GothicTactics.Skirmish
             float scale = UiScale;
             sceneRect = new Rect(270*scale,230*scale,Mathf.Max(1,Screen.width-270*scale),Mathf.Max(1,Screen.height-310*scale));
             // Integer pixel enlargement; point sampling prevents a blurry upscale.
-            int zoom = Mathf.Max(1,Mathf.CeilToInt(sceneRect.height/240f));
+            int zoom = Mathf.Max(1,Mathf.CeilToInt(sceneRect.height/540f));
             int width = Mathf.Max(1,Mathf.FloorToInt(sceneRect.width/zoom));
             int height = Mathf.Max(1,Mathf.FloorToInt(sceneRect.height/zoom));
             sceneRect = new Rect(sceneRect.x+(sceneRect.width-width*zoom)*.5f,sceneRect.y+(sceneRect.height-height*zoom)*.5f,width*zoom,height*zoom);
@@ -121,16 +121,23 @@ namespace GothicTactics.Skirmish
             battle = new SkirmishBattle(loadouts,Random.Range(0,int.MaxValue));
             armedCard=null; armedEquipment=null; armedInnate=false;
             cardFeedbackUntil=0;
-            var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Stone;
+            var tileMat = MakeMaterial(stone); tileMat.mainTexture = art.Ground;
             var ruinMat = MakeMaterial(new Color(.52f,.48f,.42f)); ruinMat.mainTexture = art.Stone;
             var gold = MakeMaterial(new Color(.38f,.28f,.15f));
             var shadow = MakeMaterial(new Color(.06f,.045f,.04f));
+            AddSanctuaryScenery(ruinMat);
             foreach (var c in battle.Cells)
             {
                 var go = new GameObject("Hex " + c.Q + ", " + c.R, typeof(MeshFilter), typeof(MeshRenderer));
                 go.transform.SetParent(world); go.transform.position = Position(c.Id);
                 go.GetComponent<MeshFilter>().sharedMesh = hex;
                 var renderer = go.GetComponent<Renderer>(); renderer.sharedMaterial = tileMat; tiles[c.Id] = renderer;
+                // Each hex samples its own part of one continuous ground texture.
+                var groundBlock=new MaterialPropertyBlock();
+                Vector3 groundAt=Position(c.Id);
+                groundBlock.SetVector("_BaseMap_ST",new Vector4(.25f,.25f,groundAt.x*.125f,groundAt.z*.125f));
+                groundBlock.SetVector("_MainTex_ST",new Vector4(.25f,.25f,groundAt.x*.125f,groundAt.z*.125f));
+                renderer.SetPropertyBlock(groundBlock);
                 if (c.Blocked)
                 {
                     Vector3 at = Position(c.Id);
@@ -140,13 +147,17 @@ namespace GothicTactics.Skirmish
                     Primitive("Stone cap", PrimitiveType.Cube, at+new Vector3(0,1.56f,.21f), new Vector3(.85f,.12f,.38f), ruinMat, world);
                     Primitive("Engraved cross", PrimitiveType.Cube, at+new Vector3(0,1.13f,.058f), new Vector3(.09f,.48f,.015f), shadow, world);
                     Primitive("Cross arm", PrimitiveType.Cube, at+new Vector3(0,1.23f,.05f), new Vector3(.34f,.07f,.016f), shadow, world);
+                    for(int band=0;band<3;band++)
+                        Primitive("Tomb moulding",PrimitiveType.Cube,at+new Vector3(0,.30f+band*.19f,0),new Vector3(1.01f,.045f,.96f),ruinMat,world);
+                    for(int stud=0;stud<3;stud++)
+                        Primitive("Inset memorial lettering",PrimitiveType.Cube,at+new Vector3(0,.81f+stud*.075f,.058f),new Vector3(.28f-stud*.04f,.018f,.018f),shadow,world);
                     if (c.Id % 2 == 0) AddTorch(at+new Vector3(-.53f,0,-.42f),gold);
                 }
             }
             foreach (var u in battle.Units)
             {
                 var root = new GameObject(u.Name).transform; root.SetParent(world); root.position = Position(u.CellId);
-                Primitive("Foot shadow", PrimitiveType.Cylinder,root.position+Vector3.up*.025f,new Vector3(.78f,.012f,.60f),shadow,root);
+                Primitive("Foot shadow", PrimitiveType.Cylinder,root.position+Vector3.up*.025f,new Vector3(.90f,.008f,.67f),shadow,root);
                 var image = new GameObject(u.Role+" sprite",typeof(SpriteRenderer)).GetComponent<SpriteRenderer>();
                 image.transform.SetParent(root,false); image.transform.localPosition=Vector3.up*.08f;
                 image.transform.rotation=view.transform.rotation; image.sprite=art.Character(SpriteRole(u));
@@ -155,6 +166,61 @@ namespace GothicTactics.Skirmish
             }
             selected = battle.Units[0]; hint = "Defeat every revenant. Keep at least one hero alive.";
             Refresh();
+        }
+        private void AddSanctuaryScenery(Material masonry)
+        {
+            var earth=MakeMaterial(new Color(.43f,.44f,.47f)); earth.mainTexture=art.Ground;
+            earth.mainTextureScale=new Vector2(8,8);
+            Primitive("Sanctuary earth",PrimitiveType.Cube,new Vector3(12,-.11f,6),new Vector3(48,.18f,36),earth,world);
+            var bark=MakeMaterial(new Color(.22f,.20f,.23f)); bark.mainTexture=art.Stone;
+            // Scenery stays outside the playable cells; visible tombs remain the blockers.
+            for(int i=0;i<12;i++)
+            {
+                Vector3 at=new Vector3(-4+i*3.2f,0,16.2f);
+                Primitive("Churchyard wall footing",PrimitiveType.Cube,at+Vector3.up*.24f,new Vector3(3.1f,.48f,.8f),masonry,world);
+                if(i%3!=1)
+                {
+                    Primitive("Broken churchyard wall",PrimitiveType.Cube,at+Vector3.up*.8f,new Vector3(3.05f,1.05f,.58f),masonry,world);
+                    Primitive("Wall coping",PrimitiveType.Cube,at+Vector3.up*1.36f,new Vector3(3.15f,.15f,.75f),masonry,world);
+                }
+                if(i%3==0) AddDeadTree(at+new Vector3(.6f,0,1.6f),bark,i);
+            }
+            AddDeadTree(new Vector3(-3,0,1),bark,7);
+            AddDeadTree(new Vector3(30,0,8),bark,11);
+            var random=new System.Random(118);
+            foreach(var cell in battle.Cells)
+            {
+                // Low rubble hugs obstacle bases so it cannot imply new collision.
+                if(!cell.Blocked) continue;
+                Vector3 at=Position(cell.Id);
+                for(int i=0;i<5;i++)
+                {
+                    float angle=(float)random.NextDouble()*Mathf.PI*2;
+                    var rock=Primitive("Fallen masonry",PrimitiveType.Cube,
+                        at+new Vector3(Mathf.Cos(angle)*.66f,.07f,Mathf.Sin(angle)*.66f),
+                        new Vector3(.12f+(float)random.NextDouble()*.16f,.14f,.18f),masonry,world);
+                    rock.rotation=Quaternion.Euler(8,random.Next(180),12);
+                }
+            }
+        }
+        private void AddDeadTree(Vector3 at,Material bark,int seed)
+        {
+            Branch(at,at+new Vector3(.15f,2.8f,0),.18f,bark);
+            for(int i=0;i<7;i++)
+            {
+                float angle=(i*137+seed*31)*Mathf.Deg2Rad;
+                Vector3 start=at+new Vector3(.08f,1.0f+i*.24f,0);
+                Vector3 end=start+new Vector3(Mathf.Cos(angle)*(1.2f-i*.08f),.65f,Mathf.Sin(angle)*.8f);
+                Branch(start,end,.075f,bark);
+                Branch(end,end+new Vector3(Mathf.Cos(angle+.7f)*.5f,.55f,Mathf.Sin(angle+.7f)*.4f),.035f,bark);
+            }
+        }
+        private void Branch(Vector3 from,Vector3 to,float width,Material material)
+        {
+            Vector3 direction=to-from;
+            var branch=Primitive("Bare branch",PrimitiveType.Cylinder,(from+to)*.5f,
+                new Vector3(width,direction.magnitude*.5f,width),material,world);
+            branch.rotation=Quaternion.FromToRotation(Vector3.up,direction);
         }
         private void Refresh()
         {
@@ -175,7 +241,7 @@ namespace GothicTactics.Skirmish
             foreach (var c in battle.Cells)
             {
                 Color color = (c.Blocked ? stone*.75f : stone) * (1f + ((c.Id*17)%9-4)*.018f);
-                if (costs.ContainsKey(c.Id)) color = new Color(.57f,.62f,.43f);
+                if (costs.ContainsKey(c.Id)) color = Color.Lerp(stone,new Color(.57f,.62f,.43f),.24f);
                 if (path.Contains(c.Id)) color = new Color(.77f,.74f,.47f);
                 var occupant = battle.At(c.Id);
                 if (selected != null && battle.CanAttack(selected,occupant)) color = new Color(.72f,.30f,.22f);
@@ -187,6 +253,7 @@ namespace GothicTactics.Skirmish
                 }
                 if (selected != null && selected.Alive && selected.CellId == c.Id) color = new Color(.95f,.73f,.34f);
                 if (c.Id == hover) color = Color.Lerp(color,Color.white,.25f);
+                tiles[c.Id].GetPropertyBlock(block);
                 block.SetColor("_BaseColor",color); block.SetColor("_Color",color); tiles[c.Id].SetPropertyBlock(block);
             }
         }
@@ -421,7 +488,7 @@ namespace GothicTactics.Skirmish
             for (int i = 0; i < 6; i++)
             {
                 float angle = (60*i+30)*Mathf.Deg2Rad;
-                vertices[i+1] = new Vector3(Mathf.Cos(angle)*.99f,0,Mathf.Sin(angle)*.99f);
+                vertices[i+1] = new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
                 uv[i+1] = new Vector2(vertices[i+1].x*.5f+.5f,vertices[i+1].z*.5f+.5f);
                 triangles[i*3] = 0; triangles[i*3+1] = i == 5 ? 1 : i+2; triangles[i*3+2] = i+1;
             }
